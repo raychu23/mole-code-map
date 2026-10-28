@@ -26,7 +26,7 @@ The map shows at most 25 boxes; the rest is summarised as "+N more".
 ## Install
 
 Install the `.vsix` file with `code --install-extension mole-code-map-<version>.vsix` (or Extensions view → ⋯ → Install from VSIX).
-It is also on Open VSX (VSCodium, and the forks that use it) and the VS Code Marketplace. Needs VS Code 1.101 or newer. The panel opens by itself in workspaces that contain TypeScript; in any other
+Planned: Open VSX (VSCodium and the forks that use it) and the VS Code Marketplace; until then install the `.vsix` from the GitHub releases page. Needs VS Code 1.101 or newer. The panel opens by itself in workspaces that contain TypeScript; in any other
 workspace Mole stays silent (run **Mole: Open map beside the code** to start it anyway).
 
 ## Privacy

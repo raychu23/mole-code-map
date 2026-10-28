@@ -7,7 +7,7 @@ defines, who calls it, what it calls and who imports it. Click a box to jump to 
 
 *Mole on the [Excalidraw](https://github.com/excalidraw/excalidraw) source (MIT).*
 
-- **Install:** search for "Mole: Code Map" in the Extensions view (VS Code Marketplace or Open VSX), or install a `.vsix` from the releases page.
+- **Install:** download `mole-code-map-<version>.vsix` from the [releases page](https://github.com/raychu23/mole-code-map/releases) and run `code --install-extension <file>` (Extensions view → ⋯ → Install from VSIX). Marketplace listings (VS Code Marketplace, Open VSX) are planned.
 - **Local only:** no network, no telemetry, no AI call. The index lives in `.git/mole` in your repository.
 - **Honest about limits:** TypeScript/TSX only; lists are capped at 25 boxes; tested on macOS so far. See the extension README.
 

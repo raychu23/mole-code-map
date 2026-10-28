@@ -1,5 +1,4 @@
 // Mole graph schema (plan core_model + B2/B3). Every layer and surface reads these types.
-// Source of truth for decisions: context/product-plan/systems/plan.json (private).
 
 /** Where a claim comes from: a file, a 1-based line and the commit it was read at. */
 export interface Evidence {

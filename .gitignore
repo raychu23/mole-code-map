@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-tsc/
+*.tsbuildinfo
+.DS_Store
+.stage/
+*.vsix

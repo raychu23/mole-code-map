@@ -15,7 +15,7 @@
     "bundle": "npm run bundle -w @mole/vscode"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.13"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

@@ -1,0 +1,115 @@
+{
+  "name": "@mole/vscode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "displayName": "Mole: Code Map",
+  "description": "A map of the file you are looking at, beside the code: what it defines, who calls it, what it calls, who imports it. Local only, TypeScript.",
+  "publisher": "raychu23",
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:mole.map"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "mole.openMap",
+        "title": "Open map beside the code",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.toggleImpact",
+        "title": "Toggle impact view",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.reindex",
+        "title": "Re-index repository",
+        "category": "Mole"
+      }
+    ],
+    "configuration": {
+      "title": "Mole",
+      "properties": {
+        "mole.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the map panel beside the editor on startup."
+        },
+        "mole.tsconfig": {
+          "type": "string",
+          "description": "tsconfig to take compiler options from (default: none, built-in defaults)."
+        },
+        "mole.srcDir": {
+          "type": "string",
+          "description": "Folder to index, relative to the workspace (default: src if it exists, otherwise the whole workspace; node_modules, dist and dot-folders are skipped)."
+        },
+        "mole.stateDir": {
+          "type": "string",
+          "description": "Where the daemon keeps its lock and graph (default: .git/mole)."
+        },
+        "mole.daemonCli": {
+          "type": "string",
+          "description": "Advanced: path to a Mole daemon cli. Default: the one bundled with this extension."
+        },
+        "mole.idleMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "The background indexer stops after this many minutes without a request and is restarted when needed (0 = never stop)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "bundle": "node esbuild.mjs",
+    "package": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "ovsx": "^1.3.0"
+  },
+  "dependencies": {
+    "@mole/core": "*",
+    "@mole/daemon": "*",
+    "@mole/layout": "*"
+  },
+  "categories": [
+    "Visualization",
+    "Education",
+    "Other"
+  ],
+  "keywords": [
+    "code map",
+    "call graph",
+    "typescript",
+    "code navigation",
+    "learning",
+    "impact analysis"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#202430",
+    "theme": "dark"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raychu23/mole-code-map.git",
+    "directory": "apps/vscode"
+  },
+  "homepage": "https://github.com/raychu23/mole-code-map#readme",
+  "bugs": {
+    "url": "https://github.com/raychu23/mole-code-map/issues"
+  }
+}

@@ -1,0 +1,5 @@
+src/**
+webview/**
+test/**
+dist-tsc/**
+*.map

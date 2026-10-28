@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/indexer"
+    },
+    {
+      "path": "packages/daemon"
+    },
+    {
+      "path": "packages/mcp"
+    },
+    {
+      "path": "packages/layout"
+    },
+    {
+      "path": "apps/vscode"
+    }
+  ]
+}

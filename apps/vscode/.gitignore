@@ -1,0 +1,4 @@
+.stage/
+*.vsix
+dist/
+dist-tsc/

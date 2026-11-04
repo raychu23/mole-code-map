@@ -12,7 +12,7 @@ execFileSync('node', ['esbuild.mjs'], { cwd: ext, stdio: 'inherit' });
 
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(join(stage, 'dist'), { recursive: true });
-for (const f of ['extension.cjs', 'webview.js', 'daemon.cjs', 'worker.cjs', ...readdirSync(join(ext, 'dist')).filter((n) => /^lib\..*\.d\.ts$/.test(n))]) cpSync(join(ext, 'dist', f), join(stage, 'dist', f));
+for (const f of ['extension.cjs', 'webview.js', 'panel.js', 'daemon.cjs', 'worker.cjs', ...readdirSync(join(ext, 'dist')).filter((n) => /^lib\..*\.d\.ts$/.test(n))]) cpSync(join(ext, 'dist', f), join(stage, 'dist', f));
 for (const f of ['README.md', 'CHANGELOG.md']) cpSync(join(ext, f), join(stage, f));
 for (const dir of [ext, resolve(ext, '../..')]) if (existsSync(join(dir, 'LICENSE')) && !existsSync(join(stage, 'LICENSE'))) cpSync(join(dir, 'LICENSE'), join(stage, 'LICENSE'));
 cpSync(join(ext, 'media'), join(stage, 'media'), { recursive: true });

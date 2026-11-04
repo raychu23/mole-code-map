@@ -1,0 +1,7 @@
+[A]: The Beatles are the best!
+  + [B]: The Beatles made 'Rubber Soul'!
+  -> <C>: The Rolling Stones were cooler!
+
+[A]
+  + [B]
+  -> <C>

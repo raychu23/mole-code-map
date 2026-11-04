@@ -13,6 +13,17 @@
   },
   "dependencies": {
     "@mole/core": "*",
-    "@mole/indexer": "*"
+    "@mole/indexer": "*",
+    "@mole/memory": "*",
+    "@mole/history": "*",
+    "@mole/questions": "*",
+    "@mole/steer": "*",
+    "@mole/telemetry": "*",
+    "@mole/decisions": "*",
+    "@mole/verify": "*",
+    "@mole/intake": "*",
+    "@mole/proposals": "*",
+    "@mole/hotspots": "*",
+    "@mole/coupling": "*"
   }
 }

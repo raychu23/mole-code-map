@@ -1,0 +1,26 @@
+{
+  "name": "@mole/decisions",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "bench": "node dist/bench/m21.js"
+  },
+  "dependencies": {
+    "@mole/memory": "*",
+    "@mole/questions": "*",
+    "@mole/reasoning": "*",
+    "@mole/reviews": "*",
+    "dependency-cruiser": "^18.7.0",
+    "proper-lockfile": "^4.1.2",
+    "typescript": "^5.9.3",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@argdown/core": "^2.0.1",
+    "@types/proper-lockfile": "^4.1.4"
+  }
+}

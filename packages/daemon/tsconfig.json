@@ -13,6 +13,39 @@
     },
     {
       "path": "../indexer"
+    },
+    {
+      "path": "../memory"
+    },
+    {
+      "path": "../history"
+    },
+    {
+      "path": "../questions"
+    },
+    {
+      "path": "../steer"
+    },
+    {
+      "path": "../telemetry"
+    },
+    {
+      "path": "../decisions"
+    },
+    {
+      "path": "../verify"
+    },
+    {
+      "path": "../intake"
+    },
+    {
+      "path": "../proposals"
+    },
+    {
+      "path": "../hotspots"
+    },
+    {
+      "path": "../coupling"
     }
   ]
 }

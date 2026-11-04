@@ -1,0 +1,21 @@
+{
+  "statements": [
+    "A",
+    "B"
+  ],
+  "arguments": [
+    "C"
+  ],
+  "relations": [
+    {
+      "from": "B",
+      "to": "A",
+      "relationType": "support"
+    },
+    {
+      "from": "A",
+      "to": "C",
+      "relationType": "attack"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "mole",
+  "owner": { "name": "Raymond Chu" },
+  "plugins": [
+    {
+      "name": "mole",
+      "source": { "source": "npm", "package": "mole-code" },
+      "description": "Mole for Claude Code: the people's decisions behind the code at session start, when you edit a governed line, and when you stop. Local only, no model calls.",
+      "version": "0.2.0"
+    }
+  ]
+}

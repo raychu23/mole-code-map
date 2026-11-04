@@ -1,0 +1,16 @@
+{
+  "name": "@mole/memory",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "bench": "node dist/bench/m1.js"
+  },
+  "dependencies": {
+    "@mole/core": "*",
+    "typescript": "^5.9.3"
+  }
+}

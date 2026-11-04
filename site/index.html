@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mole — keep the team's decisions visible and checked</title>
+<meta name="description" content="One install, no new tab, no tokens for the checks: Mole keeps a team's decisions visible next to the code and verifies they're still true, in the editor or agent you already use." />
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #11151a;
+    --border: #22282f;
+    --text: #e6e9ec;
+    --muted: #9aa5b1;
+    --accent: #6ee7b7;
+    --accent2: #60a5fa;
+    --red: #f87171;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+  a { color: var(--accent2); }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 20px 80px; }
+  header.hero { text-align: center; padding: 56px 0 24px; }
+  header.hero h1 { font-size: 2.1rem; margin: 0 0 12px; }
+  header.hero p.tagline { color: var(--muted); font-size: 1.1rem; max-width: 680px; margin: 0 auto 28px; line-height: 1.5; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+  .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); text-decoration: none; font-size: 0.92rem; font-family: var(--mono); }
+  .btn.primary { background: var(--accent); color: #06210f; border-color: var(--accent); font-weight: 600; }
+  .btn:hover { filter: brightness(1.15); }
+  h2 { font-size: 1.3rem; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-top: 56px; }
+  p, li { line-height: 1.6; color: var(--text); }
+  .muted { color: var(--muted); }
+  .term {
+    background: #060708; border: 1px solid var(--border); border-radius: 10px; margin-top: 20px;
+    overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.4);
+  }
+  .term-bar { display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: #0e1116; border-bottom: 1px solid var(--border); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.r { background: #f87171; } .dot.y { background: #fbbf24; } .dot.g { background: #34d399; }
+  .term-title { margin-left: 8px; color: var(--muted); font-family: var(--mono); font-size: 0.8rem; }
+  .term-body { padding: 16px; font-family: var(--mono); font-size: 0.82rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; min-height: 380px; }
+  .term-body .ok { color: var(--accent); }
+  .term-body .bad { color: var(--red); }
+  .term-body .dim { color: var(--muted); }
+  .cursor { display: inline-block; width: 7px; height: 1em; background: var(--text); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .replay-btn { margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.92rem; }
+  th, td { text-align: left; border: 1px solid var(--border); padding: 8px 10px; vertical-align: top; }
+  th { background: var(--panel); }
+  code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-family: var(--mono); font-size: 0.88em; }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; overflow-x: auto; }
+  footer { margin-top: 64px; text-align: center; color: var(--muted); font-size: 0.85rem; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>Mole</h1>
+    <p class="tagline">
+      Everything you need to trust code you didn't write, in the editor you already use —
+      why it's built this way, whether that's still true, and whether an agent's "done" is real.
+      One install. No new tab. No tokens for the checks.
+    </p>
+    <div class="buttons">
+      <a class="btn primary" href="https://github.com/raychu23/mole-code-map">View on GitHub</a>
+      <a class="btn" href="#install">Install</a>
+      <a class="btn" href="#demo">See it work</a>
+    </div>
+  </header>
+
+  <h2>The problem, plainly</h2>
+  <p>
+    Teams write decisions in Slack threads, PR comments and people's heads. Agents write code fast and don't
+    know those decisions exist unless someone pastes them in every time. Nobody re-checks an old decision
+    against the code it governs, so it's wrong in production before anyone notices. Mole keeps a small
+    number of team decisions as plain files next to the code, and checks them for free, every time — no LLM
+    call, no dashboard, no separate tool to remember to run.
+  </p>
+
+  <h2 id="demo">See it work (30 seconds)</h2>
+  <p class="muted">
+    This is a real, unedited run of <code>npx -y mole-code demo</code> against a packed
+    <code>mole-code</code> tarball in a clean install directory (no repo checkout, no network beyond the
+    initial install). Press play, or just read it straight through below.
+  </p>
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="term-title">npx -y mole-code demo</span>
+    </div>
+    <div class="term-body" id="termBody"><span class="cursor"></span></div>
+  </div>
+  <div class="replay-btn"><button class="btn" id="replayBtn" onclick="playDemo()">▶ replay</button></div>
+
+  <h2 id="install">Install</h2>
+  <p>Mole is one npm package (<code>mole-code</code>) underneath every surface below.</p>
+  <div class="cols">
+    <div>
+      <h3>Claude Code plugin</h3>
+      <pre>/plugin marketplace add raychu23/mole-code-map
+/plugin install mole</pre>
+      <h3>VS Code / Open VSX</h3>
+      <p>Download the <code>.vsix</code> from the <a href="https://github.com/raychu23/mole-code-map/releases">releases page</a> and <code>code --install-extension &lt;file&gt;</code>. Marketplace listings planned.</p>
+    </div>
+    <div>
+      <h3>CLI, any repo</h3>
+      <pre>npx mole-code --help</pre>
+      <h3>MCP (Codex / Cursor / Gemini CLI / Claude Desktop)</h3>
+      <pre>{ "mcpServers": { "mole": { "command": "npx", "args": ["-y", "-p", "mole-code", "mole-mcp"] } } }</pre>
+      <p class="muted">Full per-client config snippets are in the <a href="https://github.com/raychu23/mole-code-map#install">repo README</a>.</p>
+    </div>
+  </div>
+
+  <h2>What it does, by job</h2>
+  <ul>
+    <li><strong>Keep the team's decisions enforced</strong> — write one in plain language, add a <code>rules:</code> block, every future change is checked for free (<code>mole rules</code>).</li>
+    <li><strong>Know whether an edit touches a past fix</strong> — <code>mole check</code> shows past fixes on edited lines, with reasons and guarding tests.</li>
+    <li><strong>See what a function calls, who calls it, what it breaks</strong> — the code-map panel (VS Code) / <code>mole map</code> / <code>mole impact</code>, the original <code>mole-code-map</code> feature, kept as-is.</li>
+    <li><strong>Leave notes that survive a rename</strong> — <code>mole note add</code>, flagged stale when the code under it changes.</li>
+    <li><strong>MCP tools for any agent</strong> — the same decisions/map/check over MCP.</li>
+  </ul>
+
+  <h2>Verified numbers, with sources</h2>
+  <table>
+    <tr><th>Claim</th><th>Number</th></tr>
+    <tr><td>Test selection catches the same regressions as running everything</td><td>10/10 regressions caught running <strong>1.2%</strong> of the suite (163/14,065 tests)</td></tr>
+    <tr><td>No-model decision-conflict checker vs. an LLM judge</td><td>28/29 caught vs 29/29; ~half the false alarms (4/60 vs 9/60); ~13× lower estimated inference cost — not a demonstrated accuracy edge, model labels not human-audited</td></tr>
+    <tr><td>Incremental re-check vs. full re-solve (one ICCMA19 graph)</td><td>p50 7.17 ms vs 2,081.87 ms, 15/15 matching results — a specific benchmark, not a universal claim</td></tr>
+  </table>
+  <p class="muted">
+    Full citations (file + line) are in the repo README's "Verified numbers" section. We also say plainly
+    where Mole has <em>not</em> shown a win yet: the first 24 scored runs of an internal agent-task benchmark
+    scored Mole's hooks at 19.5% of available points vs 41.5% with no context — we do not claim a
+    productivity gain anywhere on this site.
+  </p>
+
+  <h2>Limits</h2>
+  <ul>
+    <li>TypeScript/TSX only.</li>
+    <li>Rule enforcement checks import/call graphs, not runtime behavior.</li>
+    <li>Tested on macOS (arm64) so far.</li>
+    <li>No productivity claim yet — see above.</li>
+    <li>Local only: no network, no telemetry, no model calls in the core checks.</li>
+  </ul>
+
+  <footer>
+    MIT licensed. <a href="https://github.com/raychu23/mole-code-map">github.com/raychu23/mole-code-map</a>
+  </footer>
+</div>
+
+<script>
+// Real, unedited transcript from `npx -y mole-code demo` run through a packed mole-code tarball in a
+// clean install directory. The only line removed
+// is Node's one-time "SQLite is an experimental feature" warning (not part of the demo's own output).
+const LINES = [
+"$ npx -y mole-code demo",
+"mole demo -- a 30-second walkthrough, no network, no model calls, nothing leaves this machine.",
+"",
+"1. Writing a tiny sample repo with 3 real team decisions into a temp dir:",
+"   /tmp/mole-demo-XXXXXX",
+"   D001  Payments never imports the legacy billing client directly",
+"   D002  UI code never reaches into the database layer directly",
+"   D003  No dynamic eval anywhere in src/",
+"   Each decision is a plain markdown file with a `rules:` block Mole can check deterministically --",
+"   no model call, just an import/call-graph scan (dependency-cruiser + the TypeScript compiler API).",
+"",
+"2. Checking the repo as it stands (`mole rules`):",
+"   3 rules (2 import, 1 call) from 3 decisions: 0 violations (726 ms)",
+"   Clean: nothing in the sample code breaks a decision yet.",
+"",
+"3. Now simulate an agent (or a teammate) making a change that breaks D001:",
+"   src/payments/checkout.ts switches from src/billing/ to the forbidden src/legacy-billing/ path.",
+"   (this is the same kind of edit an agent makes mid-task when it is not shown the decision, or shown",
+"   it and ignores it -- both happen in practice)",
+"",
+"4. Checking again -- this is the exact check plugins/claude-code runs in its Stop hook on every session:",
+"   src/payments/checkout.ts:2  import ../legacy-billing/client.js  breaks D001 \"Payments never imports",
+"   the legacy billing client directly\" (green accepted)",
+"       why: legacy-billing has no refund path; payments must go through src/billing/",
+"       rule mole-D001-1 at .mole/decisions/D001-no-legacy-billing.md:6",
+"   3 rules (2 import, 1 call) from 3 decisions: 1 violation (70 ms)",
+"",
+"   Caught: src/payments/checkout.ts:2 breaks D001 \"Payments never imports the legacy billing client directly\".",
+"   Why this decision exists: legacy-billing has no refund path; payments must go through src/billing/",
+"   In Claude Code, this text is what the agent sees before it reports the task done -- it does not",
+"   block the agent, it puts the decision and the reason back in front of a person before merge.",
+"",
+"That is the whole loop: write a decision once in plain language, keep it in a file next to the code,",
+"and every check from here on is free (no tokens, no model) until the code actually moves away from it.",
+];
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function classify(line) {
+  if (/^\d\./.test(line)) return "ok";
+  if (/Caught:|violation\b/.test(line)) return "bad";
+  if (/^\s*$/.test(line)) return "";
+  return "dim";
+}
+
+let playing = false;
+async function playDemo() {
+  if (playing) return;
+  playing = true;
+  const body = document.getElementById("termBody");
+  body.textContent = "";
+  const btn = document.getElementById("replayBtn");
+  btn.disabled = true;
+  for (const line of LINES) {
+    const div = document.createElement("div");
+    const cls = classify(line);
+    if (cls) div.className = cls;
+    body.appendChild(div);
+    for (let i = 0; i <= line.length; i++) {
+      div.innerHTML = escapeHtml(line.slice(0, i)) + '<span class="cursor"></span>';
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, line.length > 60 ? 3 : 8));
+    }
+    div.innerHTML = escapeHtml(line);
+    body.scrollTop = body.scrollHeight;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, line.trim() === "" ? 60 : 40));
+  }
+  const cur = document.createElement("span");
+  cur.className = "cursor";
+  body.appendChild(cur);
+  btn.disabled = false;
+  playing = false;
+}
+
+window.addEventListener("DOMContentLoaded", () => playDemo());
+</script>
+</body>
+</html>

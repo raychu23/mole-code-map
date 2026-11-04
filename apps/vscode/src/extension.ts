@@ -1,4 +1,6 @@
-import { existsSync, readdirSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import * as vscode from 'vscode';
 import type { Neighborhood } from '@mole/core';
@@ -6,6 +8,11 @@ import { ensureDaemon, MoleClient } from '@mole/daemon';
 import { clickLine } from '../webview/render.js';
 import { CSS } from '../webview/style.js';
 import { debounce, toRepoPath } from './paths.js';
+import { Surface } from './surface.js';
+import { startDecisionTree } from './tree-provider.js';
+import { MolePanelView, PANEL_VIEW_ID } from './panelView.js';
+import type { SinceResult } from '@mole/memory';
+import { documentSymbolTails, dwellSpans, SeenRecorder, spanAt, type DocSymbol, type SeenHit, type SymbolSpan } from './seen.js';
 
 const VIEW_TYPE = 'mole.map';
 const SWITCH_DEBOUNCE_MS = 120;
@@ -37,6 +44,22 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   output = vscode.window.createOutputChannel('Mole');
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const mole = new MolePanel(ctx, root);
+  let panelView: MolePanelView | undefined;
+  if (root) {
+    panelView = new MolePanelView(ctx, root, { cliPath: moleCli(ctx), root, nodePath: process.execPath }, () => mole.getClient(), (m) => output.appendLine(m));
+    ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(PANEL_VIEW_ID, panelView), panelView);
+    // the M26 check drives panelView.follow() itself, deterministically, one call at a time; a live listener
+    // racing the same editor/selection events it is causing would double-fire and make the latency measurement
+    // (not the real feature) flaky, so it is not registered in that mode.
+    if (!process.env.MOLE_M26_CHECK) {
+      const followPanel = debounce((e: vscode.TextEditor | undefined) => void panelView!.follow(e), 150);
+      ctx.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(followPanel),
+        vscode.window.onDidChangeTextEditorSelection((e) => followPanel(e.textEditor)),
+      );
+      if (vscode.window.activeTextEditor) void panelView.follow(vscode.window.activeTextEditor);
+    }
+  }
   ctx.subscriptions.push(
     output,
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
@@ -53,11 +76,14 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.commands.registerCommand('mole.reindex', () => mole.reindex()),
     vscode.window.onDidChangeActiveTextEditor(debounce((e: vscode.TextEditor | undefined) => void mole.follow(e, performance.now()), SWITCH_DEBOUNCE_MS)),
   );
+  if (root) registerCliCommands(ctx, root);
   if (!root) {
     output.appendLine('no workspace folder: Mole is idle');
     return;
   }
-  const testing = Boolean(process.env.MOLE_SELFTEST || process.env.MOLE_SELFTEST_RESTORE);
+  startDecisionTree(ctx, root, (m) => output.appendLine(m), moleCli(ctx)); // T30: decision badges + intent cards in the Explorer (only with .mole/)
+  if (process.env.MOLE_TREE_CHECK) return; // T30 proof artifact: decorations only, no daemon/panel needed
+  const testing = Boolean(process.env.MOLE_SELFTEST || process.env.MOLE_SELFTEST_RESTORE || process.env.MOLE_HOVER_CHECK || process.env.MOLE_M26_CHECK);
   // a public extension must be silent where it has nothing to say: no TypeScript here = no panel, no background process
   const dormant = !testing && !(await hasTypeScript());
   if (process.env.MOLE_IDLE_PROBE) {
@@ -67,7 +93,32 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     output.appendLine('no TypeScript found in this workspace: Mole stays idle (run "Mole: Open map beside the code" to start it anyway)');
     return;
   }
-  void mole.boot();
+  startSeen(ctx, root);
+  // T15: hover + gutter mark on lines the working-tree change touched, and the panel's since list
+  const surface = new Surface(ctx, {
+    root,
+    cli: moleCli(ctx),
+    stateDir: vscode.workspace.getConfiguration('mole').get<string>('stateDir') || process.env.MOLE_STATE_DIR || undefined,
+    log: (m) => output.appendLine(m),
+    onSince: (r) => mole.setSince(r),
+  });
+  surface.register();
+  ctx.subscriptions.push(
+    // the daemon may have stopped since the last refresh: a switch re-checks it (one ping), so marks never outlive it
+    vscode.window.onDidChangeActiveTextEditor(
+      debounce(() => void surface.recheck(), 500),
+    ),
+  );
+  const booted = mole.boot();
+  void booted.then(() => Promise.all([surface.refresh(), surface.refreshSince()]));
+  if (process.env.MOLE_HOVER_CHECK) {
+    void hoverCheck(mole, surface, root, process.env.MOLE_HOVER_CHECK);
+    return;
+  }
+  if (process.env.MOLE_M26_CHECK) {
+    void m26Check(mole, panelView, root, process.env.MOLE_M26_CHECK);
+    return;
+  }
   if (process.env.MOLE_REVIVE_PROBE) void reviveProbe(mole, root, process.env.MOLE_REVIVE_PROBE, process.env.MOLE_REVIVE_FILE ?? '');
   if (process.env.MOLE_SELFTEST) void selfTest(mole, process.env.MOLE_SELFTEST);
   else if (process.env.MOLE_SELFTEST_RESTORE) void restoreProbe(mole, process.env.MOLE_SELFTEST_RESTORE);
@@ -109,6 +160,243 @@ async function reviveProbe(mole: MolePanel, root: string, outPath: string, file:
   writeFileSync(outPath, JSON.stringify(out, null, 2));
 }
 
+/** T34 (M26): one command-palette entry per CLI read feature that is not already inside the sidebar view
+ *  (the view covers most of them; a command still exists for each, per the done-when: "every CLI read
+ *  command gets a command-palette entry"). Each runs the human-formatted CLI and opens the result read-only
+ *  so it never needs a terminal. Prompts for a target where the CLI needs one, defaulting to the file open
+ *  in the active editor. */
+function registerCliCommands(ctx: vscode.ExtensionContext, root: string): void {
+  const cli = moleCli(ctx);
+  const show = async (title: string, args: string[]): Promise<void> => {
+    const text = await new Promise<string>((resolvePromise) => {
+      execFile(process.execPath, [cli, ...args, '--root', root], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, maxBuffer: 1 << 24 }, (err, stdout, stderr) => {
+        resolvePromise(stdout?.trim() || stderr?.trim() || (err ? err.message : '(no output)'));
+      });
+    });
+    const doc = await vscode.workspace.openTextDocument({ content: `# mole ${args.join(' ')}\n\n${text}\n`, language: 'markdown' });
+    await vscode.window.showTextDocument(doc, { preview: true });
+  };
+  const currentTarget = (): string | undefined => {
+    const ed = vscode.window.activeTextEditor;
+    if (!ed || ed.document.uri.scheme !== 'file') return undefined;
+    return toRepoPath(root, ed.document.uri.fsPath);
+  };
+  const askTarget = async (prompt: string): Promise<string | undefined> => vscode.window.showInputBox({ prompt, value: currentTarget() ?? '' });
+  const cmds: Array<[string, string, () => Promise<void>]> = [
+    ['mole.cli.map', 'Map (mole map)', async () => { const t = await askTarget('file or file#Symbol to map'); if (t) await show('map', ['map', t]); }],
+    ['mole.cli.impact', 'Impact (mole impact)', async () => { const t = await askTarget('file or file#Symbol for impact'); if (t) await show('impact', ['impact', t]); }],
+    ['mole.cli.noteAdd', 'Add a note (mole note add)', async () => {
+      const t = await askTarget('file#Symbol to note');
+      if (!t) return;
+      const text = await vscode.window.showInputBox({ prompt: 'note text' });
+      if (text) await show('note add', ['note', 'add', t, text]);
+    }],
+    ['mole.cli.memory', 'Notes (mole memory)', () => show('memory', ['memory'])],
+    ['mole.cli.since', 'Since you last looked (mole since)', () => show('since', ['since'])],
+    ['mole.cli.pastFixes', 'Past fixes (mole check)', () => show('check', ['check', '--worktree'])],
+    ['mole.cli.questions', 'Questions (mole check)', () => show('check --questions', ['check', '--worktree'])],
+    ['mole.cli.decisions', 'Decisions (mole decisions)', () => show('decisions', ['decisions'])],
+    ['mole.cli.rules', 'Rule violations (mole rules)', () => show('rules', ['rules'])],
+    ['mole.cli.runTests', 'Run guarding tests (mole check --run-tests)', () => show('check --run-tests', ['check', '--worktree', '--run-tests'])],
+    ['mole.cli.claims', 'Claims (mole claims)', async () => {
+      const id = await vscode.window.showInputBox({ prompt: 'run id (Hermes/Claude Code/Codex session)' });
+      if (id) await show('claims', ['claims', id]);
+    }],
+    ['mole.cli.flows', 'Blast radius: flows (mole flows)', async () => { const t = await askTarget('file#Symbol for flows'); if (t) await show('flows', ['flows', t]); }],
+    ['mole.cli.collisions', 'Agent collisions (mole collisions)', () => show('collisions', ['collisions'])],
+    ['mole.cli.tried', 'Already tried (mole tried)', async () => { const t = await askTarget('file#Symbol or run id'); if (t) await show('tried', ['tried', t]); }],
+  ];
+  for (const [id, , handler] of cmds) ctx.subscriptions.push(vscode.commands.registerCommand(id, handler));
+}
+
+/**
+ * MOLE_M26_CHECK=<json path>: {out}. T34's own done-when check (apps/vscode/scripts/m26.mjs), run inside a real
+ * Extension Development Host via `code --extensionDevelopmentPath` (no @vscode/test-electron, no Electron
+ * download — see (internal reference removed) log/key-changes.md #1). Opens a few TypeScript files in the Mole repo,
+ * moves the cursor, and records: every registered command id, the sidebar view's last-rendered model (for
+ * M26a's "in the rendered model" check), the rules diagnostics collection, and (M26b) the ms from each
+ * cursor-move/file-switch trigger to its webview postMessage round trip, 3 refreshes.
+ */
+async function m26Check(mole: MolePanel, panelView: MolePanelView | undefined, root: string, cfgPath: string): Promise<void> {
+  // poll with plain node:fs (not vscode.workspace.fs, which showed one spurious ENOENT moments after the
+  // script wrote the file synchronously before spawning this process — a filesystem-visibility race, not a
+  // missing file: retrying a few times costs nothing and is the same shape hover-check.mjs already uses for
+  // its own output file).
+  let raw = '';
+  for (let i = 0; i < 20 && !raw; i++) {
+    if (existsSync(cfgPath)) {
+      try {
+        raw = readFileSync(cfgPath, 'utf8');
+      } catch {
+        raw = '';
+      }
+    }
+    if (!raw) await new Promise((r) => setTimeout(r, 250));
+  }
+  const cfg = JSON.parse(raw || '{}') as { out?: string; files?: string[]; shot?: string; scrollTo?: string; whatIfOrder?: string };
+  if (!cfg.out) {
+    output.appendLine(`m26 check: could not read config at ${cfgPath}`);
+    return;
+  }
+  const out: Record<string, unknown> = {};
+  try {
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+    await mole.boot();
+    out.commands = await vscode.commands.getCommands(true);
+    // the sidebar view is lazy: VS Code only calls resolveWebviewView once its container is opened. Open it
+    // explicitly (the auto-generated "<viewId>.focus" command), or the webview never exists and nothing ever
+    // posts a 'rendered' ack back (M26b would stay empty forever, looking like a correctness bug).
+    await vscode.commands.executeCommand('mole.panelView.focus');
+    await new Promise((r) => setTimeout(r, 500));
+    const files = cfg.files ?? ['apps/vscode/src/extension.ts', 'apps/vscode/src/panelData.ts', 'apps/vscode/src/panelView.ts'];
+    for (const f of files) {
+      const full = join(root, f);
+      if (!existsSync(full)) continue;
+      await vscode.window.showTextDocument(vscode.Uri.file(full), { viewColumn: vscode.ViewColumn.One, preview: false });
+      await vscode.commands.executeCommand('workbench.action.focusSideBar');
+      if (panelView) {
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+          const pos = new vscode.Position(Math.min(editor.document.lineCount - 1, 10), 0);
+          editor.selection = new vscode.Selection(pos, pos);
+        }
+        await panelView.follow(vscode.window.activeTextEditor); // cold: pays the real cost once per file+commit
+        panelView.refreshMsSamples.length = 0;
+        // M26b measures the cached path: cursor moves that stay in the same (file, commit, symbol) are a cache
+        // hit by design (prior-art.md #1's GitLens/Cody idiom); 3 such refreshes is what the key asks for.
+        for (let i = 0; i < 3; i++) await panelView.follow(vscode.window.activeTextEditor);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    out.model = panelView?.lastModel;
+    out.refreshMs = panelView?.refreshMsSamples ?? [];
+    out.diagnosticsCollections = vscode.languages.getDiagnostics().map(([, ds]) => ds.map((d) => d.source ?? '')).flat();
+    out.diagnosticsNames = ['mole-rules']; // the collection name itself (for M26a's "rules" coverage)
+    if (cfg.shot) {
+      // the sidebar is already visible and focused from the check above: a fresh `code --new-window` session
+      // is the frontmost app with no AppleScript needed (scripts/selftest.mjs's osascript activate call is
+      // the only thing this screenshot deliberately avoids — it needs a macOS Automation grant this sandboxed
+      // run does not have; see (internal reference removed) insights.md).
+      if (cfg.scrollTo) panelView?.scrollTo(cfg.scrollTo); // T62: bring one section into view for its screenshot
+      if (cfg.whatIfOrder) panelView?.triggerWhatIf(cfg.whatIfOrder); // T73: script the what-if before the shot
+      await new Promise((r) => setTimeout(r, cfg.whatIfOrder ? 3000 : 1500)); // the what-if is one more CLI round trip
+      out.model = panelView?.lastModel; // T73: re-capture AFTER the what-if round trip updated it (was stale above)
+      writeFileSync(`${cfg.shot}.ready`, 'ok');
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+  } catch (e) {
+    out.error = (e as Error).stack ?? (e as Error).message;
+  }
+  writeFileSync(cfg.out, JSON.stringify(out, null, 2));
+  await new Promise((r) => setTimeout(r, 500));
+  await vscode.commands.executeCommand('workbench.action.quit');
+}
+
+/** The Mole CLI this extension runs: mole.daemonCli, else the bundled one, else the repo build (development). */
+function moleCli(ctx: vscode.ExtensionContext): string {
+  const bundled = join(ctx.extensionPath, 'dist', 'daemon.cjs');
+  return vscode.workspace.getConfiguration('mole').get<string>('daemonCli') || (existsSync(bundled) ? bundled : resolve(ctx.extensionPath, '../../packages/daemon/dist/cli.js'));
+}
+
+const TS_LANGS = new Set(['typescript', 'typescriptreact']);
+const SEEN_FLUSH_MS = 3000;
+
+/**
+ * L1 (T13): record what you look at into .mole/local/seen.jsonl (personal, gitignored): a symbol visible for 5 s, or hovered.
+ * Symbol names come from VS Code's document symbols (no TypeScript compiler in the extension host); `mole seen --stdin` hashes
+ * the bodies, so the file format has one owner (@mole/memory). Setting mole.recordSeen (default on) turns it off.
+ */
+function startSeen(ctx: vscode.ExtensionContext, root: string): void {
+  const enabled = (): boolean => vscode.workspace.getConfiguration('mole').get<boolean>('recordSeen', true);
+  const spansCache = new Map<string, { version: number; spans: SymbolSpan[] }>();
+  const spansOf = async (doc: vscode.TextDocument): Promise<SymbolSpan[]> => {
+    const key = doc.uri.toString();
+    const hit = spansCache.get(key);
+    if (hit && hit.version === doc.version) return hit.spans;
+    let nodes: DocSymbol[] = [];
+    try {
+      nodes = (await vscode.commands.executeCommand<vscode.DocumentSymbol[]>('vscode.executeDocumentSymbolProvider', doc.uri)) ?? [];
+    } catch {
+      // no symbol provider (TypeScript extension disabled): nothing to record
+    }
+    const spans = documentSymbolTails(nodes);
+    if (spansCache.size > 200) spansCache.clear();
+    spansCache.set(key, { version: doc.version, spans });
+    return spans;
+  };
+  const repoPath = (doc: vscode.TextDocument): string | undefined => (doc.uri.scheme === 'file' && TS_LANGS.has(doc.languageId) ? toRepoPath(root, doc.uri.fsPath) : undefined);
+  const write = (hits: SeenHit[]): void => {
+    const time = new Date().toISOString();
+    const dirty = new Map(vscode.workspace.textDocuments.filter((d) => d.isDirty).map((d) => [toRepoPath(root, d.uri.fsPath), d.getText()] as const));
+    const batch = hits.map((h) => ({ ...h, time, ...(dirty.has(h.path) ? { text: dirty.get(h.path) } : {}) }));
+    try {
+      const child = spawn(process.execPath, [moleCli(ctx), 'seen', '--stdin', '--root', root], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['pipe', 'ignore', 'pipe'] });
+      let err = '';
+      child.stderr?.on('data', (d: Buffer) => (err += d.toString()));
+      child.on('error', (e) => output.appendLine(`seen log: ${e.message}`));
+      child.on('exit', (code) => {
+        if (code !== 0) output.appendLine(`seen log: mole seen exited ${code} ${err.slice(0, 300)}`);
+      });
+      child.stdin?.end(JSON.stringify(batch));
+    } catch (e) {
+      output.appendLine(`seen log: ${(e as Error).message}`);
+    }
+  };
+  const recorder = new SeenRecorder({ enabled, write });
+  let focused = vscode.window.state.focused;
+  let viewSeq = 0;
+  const update = async (): Promise<void> => {
+    const seq = ++viewSeq;
+    const editor = vscode.window.activeTextEditor;
+    const path = editor && focused && enabled() ? repoPath(editor.document) : undefined;
+    if (!editor || !path) {
+      recorder.view(undefined);
+      return;
+    }
+    const spans = dwellSpans(await spansOf(editor.document));
+    if (seq !== viewSeq) return; // a newer scroll/switch already reported
+    recorder.view({ path, symbols: spans, ranges: editor.visibleRanges.map((r) => ({ start: r.start.line, end: r.end.line })) });
+  };
+  let sinceFlush = 0;
+  const timer = setInterval(() => {
+    recorder.tick();
+    sinceFlush += 1000;
+    if (sinceFlush >= SEEN_FLUSH_MS && recorder.pendingCount() > 0) {
+      sinceFlush = 0;
+      recorder.flush();
+    }
+  }, 1000);
+  const hover: vscode.HoverProvider = {
+    async provideHover(doc, pos) {
+      const path = repoPath(doc);
+      if (path && enabled()) {
+        const s = spanAt(await spansOf(doc), pos.line);
+        if (s) recorder.hover(path, s.tail);
+      }
+      return undefined; // Mole adds nothing to the hover itself
+    },
+  };
+  ctx.subscriptions.push(
+    vscode.languages.registerHoverProvider([{ language: 'typescript', scheme: 'file' }, { language: 'typescriptreact', scheme: 'file' }], hover),
+    vscode.window.onDidChangeActiveTextEditor(() => void update()),
+    vscode.window.onDidChangeTextEditorVisibleRanges(() => void update()),
+    vscode.window.onDidChangeWindowState((st) => {
+      focused = st.focused;
+      void update();
+    }),
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      const path = repoPath(doc);
+      if (path) recorder.reset(path); // the saved body is new: looking at it for 5 s counts again
+      void update();
+    }),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('mole.recordSeen')) void update();
+    }),
+    { dispose: () => (clearInterval(timer), recorder.flush()) },
+  );
+  void update();
+}
+
 /** A tsconfig or any .ts/.tsx file outside dependency and build folders. */
 async function hasTypeScript(): Promise<boolean> {
   const found = await vscode.workspace.findFiles('{**/tsconfig*.json,**/*.ts,**/*.tsx}', '**/{node_modules,dist,out,build,.git}/**', 1);
@@ -145,11 +433,25 @@ class MolePanel {
   private unsupported?: string;
   private lastRevive = 0;
   samples: Sample[] = [];
+  private since?: SinceResult;
+  sinceRendered = -1;
+  sinceWaiters: Array<(n: number) => void> = [];
+
+  /** T15: the panel's "Since you last looked" list (`mole since --json`); kept for a panel that is opened or restored later. */
+  setSince(r: SinceResult | undefined): void {
+    this.since = r;
+    if (r) void this.panel?.webview.postMessage({ type: 'since', since: r });
+  }
 
   constructor(private readonly ctx: vscode.ExtensionContext, private readonly root: string | undefined) {}
 
   hasPanel(): boolean {
     return this.panel !== undefined;
+  }
+
+  /** T34: the live daemon client, if the daemon has started (undefined before boot() resolves or when unsupported). */
+  getClient(): MoleClient | undefined {
+    return this.client;
   }
 
   /** Start (or find) the repo's daemon, once. Never throws: the panel shows "index unavailable" instead. */
@@ -169,8 +471,7 @@ class MolePanel {
       return;
     }
     const cfg = vscode.workspace.getConfiguration('mole');
-    const bundled = join(this.ctx.extensionPath, 'dist', 'daemon.cjs');
-    const cli = cfg.get<string>('daemonCli') || (existsSync(bundled) ? bundled : resolve(this.ctx.extensionPath, '../../packages/daemon/dist/cli.js'));
+    const cli = moleCli(this.ctx);
     if (!existsSync(cli)) {
       output.appendLine(`daemon cli not found at ${cli}; set mole.daemonCli`);
       this.client = new MoleClient({ root: this.root, stateDir: cfg.get<string>('stateDir') || undefined });
@@ -222,7 +523,7 @@ class MolePanel {
   private html(webview: vscode.Webview): string {
     const nonce = Math.random().toString(36).slice(2);
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'webview.js'));
-    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; img-src data:;"><style nonce="${nonce}">${CSS}</style></head><body><div id="app"></div><script nonce="${nonce}" src="${script}"></script></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; img-src data:;"><style nonce="${nonce}">${CSS}</style></head><body><div id="app"></div><div id="since"></div><script nonce="${nonce}" src="${script}"></script></body></html>`;
   }
 
   private async onMessage(m: { type: string; [k: string]: unknown }): Promise<void> {
@@ -230,6 +531,10 @@ class MolePanel {
     if (m.type === 'ready') {
       this.ready?.();
       if (this.lastTarget) void this.send(this.lastTarget);
+      if (this.since) void this.panel?.webview.postMessage({ type: 'since', since: this.since });
+    } else if (m.type === 'sinceRendered') {
+      this.sinceRendered = Number(m.items);
+      for (const w of this.sinceWaiters.splice(0)) w(this.sinceRendered);
     } else if (m.type === 'rendered') {
       const r = m as unknown as Rendered;
       this.waiters.get(r.seq)?.(r);
@@ -307,7 +612,8 @@ class MolePanel {
     let map: Neighborhood = this.unsupported
       ? { state: 'index-unavailable', message: this.unsupported, nodes: [], edges: [], more: [] }
       : await this.client!.map(target, this.impact);
-    if (map.state === 'index-unavailable' && !this.unsupported && !process.env.MOLE_SELFTEST && Date.now() - this.lastRevive > 10_000) {
+    // (not in the self-tests: they stop the daemon on purpose and check what the editor shows without it)
+    if (map.state === 'index-unavailable' && !this.unsupported && !process.env.MOLE_SELFTEST && !process.env.MOLE_HOVER_CHECK && Date.now() - this.lastRevive > 10_000) {
       // the daemon stopped (idle shutdown, crash, or killed): start a new one and ask again, at most once per 10 s
       this.lastRevive = Date.now();
       output.appendLine('daemon not answering: starting a new one');
@@ -478,5 +784,100 @@ async function restoreProbe(mole: MolePanel, out: string): Promise<void> {
   writeFileSync(out, JSON.stringify({ panelAdopted: mole.hasPanel(), moleTabs: tabs.filter((t) => t.webview), groups: vscode.window.tabGroups.all.length, followedActiveEditor: mole.samples.length > before, mapStateAfterRelaunch: state, activeFile: file ? file.replace(root, '') : null }, null, 2));
   writeFileSync(`${out}.ready`, 'ok');
   await new Promise((r) => setTimeout(r, 4000));
+  await vscode.commands.executeCommand('workbench.action.quit');
+}
+
+/**
+ * MOLE_HOVER_CHECK=<json path>: {out, file, line, expect} (T15 done-when 1, 2, 5, 6; driven by scripts/hover-check.mjs). In the real
+ * editor: hover at file:line through vscode.executeHoverProvider, count the gutter marks drawn, run the two links the hover
+ * carries (the exact command + arguments parsed from its markdown, which is what a click on them executes), wait for the
+ * panel's since list, then stop the daemon and do it again: no Mole hover, no marks, and no popup at any point. Then quit.
+ */
+async function hoverCheck(mole: MolePanel, surface: Surface, root: string, cfgPath: string): Promise<void> {
+  const cfg = JSON.parse((await vscode.workspace.fs.readFile(vscode.Uri.file(cfgPath))).toString()) as { out: string; file: string; line: number; expect: { sha: string } };
+  const res: Record<string, unknown> = {};
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  // count every popup any code in this extension host raises
+  const popups = { patched: false, count: 0, messages: [] as string[] };
+  try {
+    const w = vscode.window as unknown as Record<string, unknown>;
+    for (const k of ['Error', 'Warning', 'Information'].map((x) => `show${x}Message`)) {
+      const orig = w[k] as (...a: unknown[]) => unknown;
+      const wrapped = (...a: unknown[]): unknown => {
+        popups.count++;
+        popups.messages.push(`${k}: ${String(a[0]).slice(0, 200)}`);
+        return orig.apply(vscode.window, a);
+      };
+      w[k] = wrapped;
+      popups.patched = w[k] === wrapped;
+    }
+  } catch (e) {
+    output.appendLine(`hover check: cannot count popups: ${(e as Error).message}`);
+  }
+  const uri = vscode.Uri.file(join(root, cfg.file));
+  const pos = new vscode.Position(cfg.line - 1, 0);
+  const hoverTexts = async (): Promise<string[]> => {
+    const hs = (await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', uri, pos)) ?? [];
+    return hs.flatMap((h) => h.contents.map((c) => (typeof c === 'string' ? c : c.value)));
+  };
+  const isMole = (t: string): boolean => t.startsWith('**Mole**');
+  const links = (md: string): Array<[string, unknown[]]> =>
+    [...md.matchAll(/\]\(command:(mole\.[A-Za-z]+)\?([^)\s]+)\)/g)].map((m) => [m[1] as string, JSON.parse(decodeURIComponent(m[2] as string)) as unknown[]]);
+  try {
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+    await mole.boot();
+    await mole.open();
+    await vscode.window.showTextDocument(uri, { viewColumn: vscode.ViewColumn.One, preview: false });
+    let loaded = false;
+    for (let i = 0; i < 20 && !loaded; i++) {
+      loaded = await surface.refresh();
+      if (!loaded) await sleep(1000);
+    }
+    await surface.refreshSince();
+    const t0 = Date.now();
+    const texts = await hoverTexts();
+    const hoverMs = Date.now() - t0;
+    const hoverText = texts.find(isMole) ?? '';
+    const up: Record<string, unknown> = { daemonRunning: await surface.running(), checkLoaded: loaded, hoverMs, hoverText, otherHovers: texts.filter((t) => !isMole(t)).length, decorations: surface.drawn.get(cfg.file) ?? 0, ranges: surface.touched.ranges(cfg.file).map((r) => [r.startLine, r.endLine]) };
+    const ls = links(hoverText);
+    up.links = ls;
+    const commit = ls.find(([c]) => c === 'mole.showCommit');
+    if (commit) {
+      await vscode.commands.executeCommand(commit[0], ...commit[1]);
+      await sleep(500);
+      const ed = vscode.window.activeTextEditor;
+      const text = ed?.document.getText() ?? '';
+      up.clickCommit = { args: commit[1], uri: ed?.document.uri.toString(), firstLine: text.split('\n')[0], ok: ed?.document.uri.scheme === 'mole-git' && text.startsWith(`commit ${String(commit[1][0])}`) };
+    }
+    const source = ls.find(([c]) => c === 'mole.openAt');
+    if (source) {
+      await vscode.commands.executeCommand(source[0], ...source[1]);
+      await sleep(500);
+      const ed = vscode.window.activeTextEditor;
+      const [file, line] = source[1] as [string, number];
+      const landed = ed ? ed.selection.active.line + 1 : -1;
+      const lineText = ed && landed > 0 ? ed.document.lineAt(landed - 1).text.trim() : '';
+      up.clickSource = { args: source[1], uri: ed?.document.uri.toString(), landedLine: landed, lineText, ok: ed?.document.uri.scheme === 'mole-git' && ed.document.uri.path === `/${file}` && landed === line && lineText.length > 0 };
+    }
+    res.up = up;
+    // panel: the since list rendered in the webview (the webview reports the number of rows it drew)
+    let rendered = mole.sinceRendered;
+    if (rendered <= 0) rendered = await Promise.race([new Promise<number>((ok) => mole.sinceWaiters.push(ok)), sleep(20_000).then(() => mole.sinceRendered)]);
+    res.since = { rendered };
+    // daemon down: back on the file, stop the daemon, then refresh + hover as the editor would
+    await vscode.window.showTextDocument(uri, { viewColumn: vscode.ViewColumn.One, preview: false });
+    await sleep(700);
+    await surface.stopDaemon();
+    for (let i = 0; i < 40 && (await surface.running()); i++) await sleep(250);
+    await surface.refresh();
+    const downTexts = await hoverTexts();
+    res.down = { daemonRunning: await surface.running(), moleHovers: downTexts.filter(isMole).length, otherHovers: downTexts.length - downTexts.filter(isMole).length, decorations: surface.drawn.get(cfg.file) ?? 0 };
+    await sleep(1500); // let any late popup land before counting
+  } catch (e) {
+    res.error = (e as Error).stack ?? (e as Error).message;
+  }
+  res.popups = popups;
+  writeFileSync(cfg.out, JSON.stringify(res, null, 2));
+  await sleep(500);
   await vscode.commands.executeCommand('workbench.action.quit');
 }

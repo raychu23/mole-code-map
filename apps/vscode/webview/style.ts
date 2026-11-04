@@ -41,4 +41,17 @@ svg.impact-mode .edge.impacted { stroke: var(--c-impact); opacity: .9; }
 .empty .title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
 .empty .hint { color: var(--vscode-descriptionForeground); line-height: 1.5; }
 .empty.index-unavailable .title { color: var(--vscode-errorForeground); }
+body { display: flex; flex-direction: column; }
+#app { flex: 1; min-height: 0; height: auto; }
+#since:empty { display: none; }
+#since { flex: none; max-height: 35%; overflow: auto; border-top: 1px solid var(--vscode-editorWidget-border, #454545); padding: 6px 12px 8px; }
+.since-head { font-weight: 600; margin-bottom: 4px; }
+.since-head .count { color: var(--vscode-descriptionForeground); font-weight: 400; margin-left: 4px; }
+.since ul { list-style: none; margin: 0; padding: 0; }
+.since-item { padding: 3px 0; cursor: pointer; }
+.since-item:hover .sym { text-decoration: underline; }
+.since-item .sym { font-family: var(--vscode-editor-font-family, monospace); }
+.since-item .st { color: var(--vscode-descriptionForeground); font-size: 11px; }
+.since-item.deleted .sym { text-decoration: line-through; }
+.since-item .what, .since-empty { color: var(--vscode-descriptionForeground); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 `;

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.raychu23/mole-code",
+  "description": "Mole's decisions/reasoning MCP server, bundled with the mole CLI in the mole-code npm package.",
+  "repository": {
+    "url": "https://github.com/raychu23/mole-code-map",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mole-code",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        { "type": "positional", "value": "-y" },
+        { "type": "positional", "value": "-p" },
+        { "type": "positional", "value": "mole-code" },
+        { "type": "positional", "value": "mole-mcp" }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

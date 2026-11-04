@@ -1,0 +1,9 @@
+# Everything below is written by tools/build.mjs (D97: the bundle/plugin files never enter git; this
+# package's package.json + tools/ are the only committed inputs). Run `npm run build` before `npm pack`.
+/dist/
+/.claude-plugin/
+/hooks/
+/scripts/
+/.mcp.json
+/LICENSE
+*.tgz

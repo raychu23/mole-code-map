@@ -1,0 +1,14 @@
+{
+  "statements": [],
+  "arguments": [
+    "Base",
+    "Exception"
+  ],
+  "relations": [
+    {
+      "from": "Exception",
+      "to": "Base",
+      "relationType": "undercut"
+    }
+  ]
+}

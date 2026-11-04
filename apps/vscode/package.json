@@ -1,6 +1,6 @@
 {
   "name": "@mole/vscode",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "displayName": "Mole: Code Map",
@@ -12,9 +12,29 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onStartupFinished",
-    "onWebviewPanel:mole.map"
+    "onWebviewPanel:mole.map",
+    "onView:mole.panelView"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mole",
+          "title": "Mole",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "mole": [
+        {
+          "id": "mole.panelView",
+          "name": "The code behind this",
+          "type": "webview",
+          "contextualTitle": "Mole"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "mole.openMap",
@@ -29,6 +49,76 @@
       {
         "command": "mole.reindex",
         "title": "Re-index repository",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.map",
+        "title": "Map: what this calls, who calls it (mole map)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.impact",
+        "title": "Impact: blast radius of a change (mole impact)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.noteAdd",
+        "title": "Add a note on this code (mole note add)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.memory",
+        "title": "Your notes (mole memory)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.since",
+        "title": "Since you last looked (mole since)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.pastFixes",
+        "title": "Past fixes behind these lines (mole check)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.questions",
+        "title": "Questions this change assumes (mole check)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.decisions",
+        "title": "Decisions that govern this code (mole decisions)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.rules",
+        "title": "Decision-rule violations (mole rules)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.runTests",
+        "title": "Run the tests that guard this change (mole check --run-tests)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.claims",
+        "title": "Agent claims, checked against what it did (mole claims)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.flows",
+        "title": "Blast radius: runtime call flows (mole flows)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.collisions",
+        "title": "Parallel-agent collisions (mole collisions)",
+        "category": "Mole"
+      },
+      {
+        "command": "mole.cli.tried",
+        "title": "What was already tried here (mole tried)",
         "category": "Mole"
       }
     ],
@@ -61,6 +151,11 @@
           "default": 30,
           "minimum": 0,
           "description": "The background indexer stops after this many minutes without a request and is restarted when needed (0 = never stop)."
+        },
+        "mole.recordSeen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record which symbols you looked at (visible for 5 s or hovered) in .mole/local/seen.jsonl, so `mole since` can list what changed after your last look. Personal: the folder is gitignored and never leaves this machine."
         }
       }
     }
@@ -68,7 +163,8 @@
   "scripts": {
     "build": "tsc -b",
     "bundle": "node esbuild.mjs",
-    "package": "node scripts/package.mjs"
+    "package": "node scripts/package.mjs",
+    "hover-check": "node scripts/hover-check.mjs"
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",
@@ -79,7 +175,14 @@
   "dependencies": {
     "@mole/core": "*",
     "@mole/daemon": "*",
-    "@mole/layout": "*"
+    "@mole/decisions": "*",
+    "@mole/history": "*",
+    "@mole/layout": "*",
+    "@mole/memory": "*",
+    "@mole/oneonone": "*",
+    "@mole/questions": "*",
+    "@mole/reviews": "*",
+    "@mole/verify": "*"
   },
   "categories": [
     "Visualization",

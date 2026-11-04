@@ -8,6 +8,7 @@ import { neighborhood } from './query.js';
 import { dbPath, lockPath, socketPath, stateDir } from './paths.js';
 import { unavailable, type DaemonStatus, type RpcRequest, type RpcResponse } from './rpc.js';
 import type { FromWorker, ToWorker, WorkerConfig } from './worker.js';
+import { withSpanSync } from '@mole/telemetry';
 
 export interface DaemonOptions {
   root: string;
@@ -300,7 +301,9 @@ export class Daemon {
         this.lastRequest = Date.now();
         let res: RpcResponse;
         try {
-          res = this.handle(JSON.parse(line) as RpcRequest);
+          const req = JSON.parse(line) as RpcRequest;
+          // T16: one span per RPC except liveness pings (no-op unless MOLE_OTEL=1)
+          res = req.method === 'ping' ? this.handle(req) : withSpanSync('mole.daemon.rpc', { 'mole.rpc.method': String(req.method) }, () => this.handle(req));
         } catch (e) {
           res = { jsonrpc: '2.0', id: null, error: { code: -32700, message: (e as Error).message } };
         }

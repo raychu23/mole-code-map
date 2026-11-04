@@ -24,6 +24,27 @@
     },
     {
       "path": "../../packages/layout"
+    },
+    {
+      "path": "../../packages/history"
+    },
+    {
+      "path": "../../packages/memory"
+    },
+    {
+      "path": "../../packages/questions"
+    },
+    {
+      "path": "../../packages/decisions"
+    },
+    {
+      "path": "../../packages/oneonone"
+    },
+    {
+      "path": "../../packages/verify"
+    },
+    {
+      "path": "../../packages/reviews"
     }
   ]
 }

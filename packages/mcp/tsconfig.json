@@ -1,6 +1,48 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../daemon" }]
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../daemon"
+    },
+    {
+      "path": "../telemetry"
+    },
+    {
+      "path": "../history"
+    },
+    {
+      "path": "../questions"
+    },
+    {
+      "path": "../decisions"
+    },
+    {
+      "path": "../intake"
+    },
+    {
+      "path": "../temporal"
+    },
+    {
+      "path": "../oneonone"
+    },
+    {
+      "path": "../proposals"
+    },
+    {
+      "path": "../hotspots"
+    },
+    {
+      "path": "../coupling"
+    }
+  ]
 }

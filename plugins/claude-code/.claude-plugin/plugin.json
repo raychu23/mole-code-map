@@ -1,0 +1,9 @@
+{
+  "name": "mole",
+  "displayName": "Mole",
+  "version": "0.2.0",
+  "description": "Mole for Claude Code: carries the PEOPLE's decisions behind the code to you at session start, when you edit a line they govern, and when you stop (D31 -- the decisions, flags and owners, not just notes); at session start also your notes (mole memory) on the files in play; mole check on the session's diff when Claude stops. Local only, no model calls.",
+  "author": { "name": "Raymond Chu" },
+  "license": "MIT",
+  "keywords": ["decisions", "code memory", "past fixes", "git history", "notes"]
+}

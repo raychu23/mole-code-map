@@ -1,0 +1,38 @@
+{
+  "name": "mole-code",
+  "version": "0.1.0",
+  "mcpName": "io.github.raychu23/mole-code",
+  "description": "Mole: a visual codebase map that follows the file you open, shared with your agents. CLI (`mole`), MCP stdio server (`mole-mcp`), and the Claude Code plugin (session-start context, a governed-line guard, a Stop-time check) in one npm package.",
+  "license": "MIT",
+  "homepage": "https://github.com/raychu23/mole-code-map",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raychu23/mole-code-map.git"
+  },
+  "type": "commonjs",
+  "bin": {
+    "mole-code": "dist/cli.js",
+    "mole": "dist/cli.js",
+    "mole-mcp": "dist/mcp.cjs"
+  },
+  "files": [
+    "dist",
+    ".claude-plugin",
+    "hooks",
+    "scripts",
+    ".mcp.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node tools/test-install.mjs"
+  },
+  "dependencies": {},
+  "publishConfig": {
+    "access": "public"
+  }
+}

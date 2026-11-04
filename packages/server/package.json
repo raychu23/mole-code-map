@@ -1,0 +1,33 @@
+{
+  "name": "@mole/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "bench": "node dist/bench/m25.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mole/decisions": "*",
+    "@mole/temporal": "*",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@octokit/webhooks-methods": "^5.1.0",
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/resources": "^3.0.0",
+    "@opentelemetry/sdk-trace": "^3.0.0",
+    "@opentelemetry/semantic-conventions": "^1.44.0",
+    "express": "^5.1.0",
+    "fastify": "^5.12.7",
+    "jose": "^6.2.13",
+    "pg": "^8.13.1",
+    "pg-boss": "^10.1.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/pg": "^8.11.10"
+  }
+}

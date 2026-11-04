@@ -8,6 +8,11 @@
 ## Maintainer steps (need the owner's own logins): two accounts, then one command
 Run `apps/vscode/scripts/publish.sh` after steps 1 and 2. It builds the package and asks for each token in a hidden prompt.
 
+Step 4 below (MCP registry) does a GitHub device-code login inside `scripts/publish-all.sh`: that
+login must be the **raychu23** GitHub account. The registry entry is namespaced `io.github.raychu23/…`,
+which only the raychu23 account can own/publish to -- logging in as any other account will make the
+final `mcp-publisher publish` call fail.
+
 ### 1. Open VSX (VSCodium, and the forks that use it; Cursor/Windsurf: check their settings, they change)
 1. https://open-vsx.org , Log in with GitHub (account raychu23).
 2. Sign the Eclipse Publisher Agreement: user settings → "Log in with Eclipse" (an Eclipse account is free), then agree to the agreement.

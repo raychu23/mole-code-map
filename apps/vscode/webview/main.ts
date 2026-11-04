@@ -3,11 +3,18 @@
 import type { Neighborhood } from '@mole/core';
 import { layoutNeighborhood, newHome, nextTop, type Home } from '@mole/layout';
 import { renderEmpty, renderHeader, renderSvg } from './render.js';
+import type { SinceResult } from '@mole/memory';
+import { renderSince } from './since.js';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
 const vscode = acquireVsCodeApi();
 window.addEventListener('error', (e) => vscode.postMessage({ type: 'error', message: `${e.message} @ ${e.filename}:${e.lineno}` }));
 const app = document.getElementById('app') as HTMLElement;
+const sinceEl = document.getElementById('since');
+sinceEl?.addEventListener('click', (ev) => {
+  const li = (ev.target as Element).closest('.since-item') as HTMLElement | null;
+  if (li) vscode.postMessage({ type: 'open', path: li.dataset.path, line: Number(li.dataset.line) });
+});
 
 interface Saved {
   map?: Neighborhood;
@@ -64,7 +71,13 @@ app.addEventListener('click', (ev) => {
 });
 
 window.addEventListener('message', (ev) => {
-  const m = ev.data as { type: string; map?: Neighborhood; seq?: number; impact?: boolean; id?: string };
+  const m = ev.data as { type: string; map?: Neighborhood; seq?: number; impact?: boolean; id?: string; since?: SinceResult };
+  if (m.type === 'since') {
+    // T15: the since list lives in its own container below the map; the map's drawing is untouched
+    if (sinceEl) sinceEl.innerHTML = renderSince(m.since);
+    vscode.postMessage({ type: 'sinceRendered', items: sinceEl ? sinceEl.querySelectorAll('.since-item').length : 0 });
+    return;
+  }
   if (m.type === 'selftestClick') {
     // self-test only: dispatch a real DOM click on a node so the click handler above runs, instead of posting 'open' directly
     const el = Array.from(app.querySelectorAll('.node')).find((n) => (n as SVGGElement).dataset.id === m.id);

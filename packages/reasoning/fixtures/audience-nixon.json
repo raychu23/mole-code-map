@@ -1,0 +1,1 @@
+{"framework":{"args":[{"id":"B1","value":"liberty"},{"id":"B2","value":"security"}],"attacks":[["B1","B2"],["B2","B1"]]},"audience":["liberty","security"]}

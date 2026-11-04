@@ -1,0 +1,19 @@
+{
+  "name": "@mole/proposals",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "bin": {
+    "mole-proposals": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@mole/decisions": "*",
+    "@mole/reasoning": "*",
+    "typescript": "^5.9.3"
+  }
+}

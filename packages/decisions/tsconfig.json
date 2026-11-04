@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": [
+    "src",
+    "bench"
+  ],
+  "exclude": [
+    "bench/corpora"
+  ],
+  "references": [
+    {
+      "path": "../memory"
+    },
+    {
+      "path": "../questions"
+    },
+    {
+      "path": "../reasoning"
+    },
+    {
+      "path": "../reviews"
+    }
+  ]
+}

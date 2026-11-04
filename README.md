@@ -154,12 +154,14 @@ this public repository, reviewed independently before publication).
 | A no-model decision-conflict checker vs. an LLM judge, same decisions | Mole 28/29 caught vs. the LLM-judge baseline 29/29; about half the false alarms (4/60 vs 9/60); roughly 13× lower estimated inference cost — **not** a demonstrated accuracy advantage; model labels were not human-audited |
 | Incremental re-check vs. a full re-solve of a formal argumentation engine | On one ICCMA19 benchmark graph (`admbuster_10000`, one edge removed), incremental p50 7.17 ms vs. full re-solve p50 2,081.87 ms (15/15 matching results before/after) — a specific benchmark result, not a universal 10k-node claim (a second graph measured 17.2 ms vs 36.7 ms) |
 
-**What we will not claim:** in the first 24 scored runs of an internal agent-task benchmark (one coding
-agent, 8 tasks × 3 setups), giving the agent Mole's context scored **19.5%** of available points, against
-**41.5%** with no context at all and **31.7%** with a plain rules file — Mole's hooks did not make the agent
-faster or better in that run. The context named the right decision for 15 of 18 scored checks; the agent
-still missed decisions it had just been shown, and the end-of-run verifier did not fire. We are not claiming
-a productivity gain anywhere on this page, and won't until a larger, pre-registered run says otherwise.
+**What we will not claim:** in a pre-registered 72-run test on the public dcbench agent-task benchmark (one coding
+agent, 8 tasks × 3 setups × 3 runs), giving the agent Mole's context scored **23.6%** of available decision-compliance
+points, against **27.6%** with the decisions pasted into a plain rules file and **31.7%** with no context at all
+(3, 5 and 4 merge-ready diffs out of 24). None of these differences is statistically significant (paired permutation
+test on task means, n = 8 tasks: p = 1.0 and 0.375), and neither context setup beat no context. Mole's hooks named the
+right decision for 15 of 18 scored checks; the agent still missed decisions it had just been shown, and in this setup
+the end-of-run check did not force a fix. Mole's runs did use fewer tokens (36.2 M vs 40.3 M and 46.9 M). We are not
+claiming a productivity gain anywhere on this page.
 
 ## How Mole compares (fetched 2026-11-03)
 

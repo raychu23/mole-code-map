@@ -268,7 +268,25 @@ Mole Stop-hook violation (`decision: "block"`) the same as a failing test — fi
 
 ## CI: block a PR on a decision-rule violation
 
-Mole's own repository runs a required GitHub Actions check this way (`.github/workflows/mole-pr-check.yml`
+Simplest: the Mole action (works today, builds Mole from this repo; pin a tag):
+
+```yaml
+name: mole
+on: [pull_request]
+permissions: { contents: read, checks: write }
+jobs:
+  mole:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: raychu23/mole-code-map@v0
+        with: { token: ${{ github.token }} }
+```
+
+Or without the action, once `mole-code` is on npm: Mole's own repository runs a required GitHub Actions check this way (`.github/workflows/mole-pr-check.yml`
 + `.github/actions/mole-check`) — not a new, invented Action, the same one dogfooded here. For a repo built
 from this monorepo's own checkout, copy both files as-is. For a repo that only has the published
 `mole-code` npm package (no Mole source checkout), swap the "build mole" step for installing the package:
@@ -302,7 +320,7 @@ jobs:
 ```
 
 Make "mole" a required status check under branch protection and a PR can't merge while it fails. Forked
-PRs get a read-only token from GitHub, so the POST step is skipped there by GitHub's own rule, not Mole's.
+PRs get a read-only token from GitHub, so posting the check run fails there (403); run it on your own branches.
 
 ## Limits
 

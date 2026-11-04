@@ -25,27 +25,61 @@ inputs:
     description: folder whose .mole/ holds the decision records (default the repository root)
     required: false
     default: '.'
+  post:
+    description: post the result as a check run named "mole" (set 'false' to only write the JSON, e.g. in tests)
+    required: false
+    default: 'true'
+  base:
+    description: optional base commit to compare (default from the event; set together with head, e.g. for scheduled runs)
+    required: false
+    default: ''
+  head:
+    description: optional head commit (default from the event)
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
+    # Steps run in the CALLER's workspace by default; Mole itself lives in the action's own checkout
+    # (github.action_path, docs: "Metadata syntax for GitHub Actions" > runs.steps[*].working-directory).
     - name: build mole
       shell: bash
+      working-directory: ${{ github.action_path }}
       run: |
         npm ci --no-audit --no-fund
         npx tsc -b
-        # same reasoning as .github/actions/mole-check/action.yml: `tsc -b` with no path builds the whole
-        # referenced project graph, so packages/flows (dynamically imported by packages/daemon/src/cli.ts
-        # at runtime for the `flows` subcommand) is actually built even though nothing imports it statically.
+        # `tsc -b` with no path builds the whole referenced project graph, so packages/flows (dynamically
+        # imported by packages/daemon/src/cli.ts for the `flows` subcommand) is built too.
 
     - name: mole pr-check
+      id: check
       shell: bash
       env:
         MOLE_RECORDS: ${{ inputs.records }}
+        MOLE_CLI: ${{ github.action_path }}/packages/daemon/dist/cli.js
+        BEFORE: ${{ github.event.before }}
+        IN_BASE: ${{ inputs.base }}
+        IN_HEAD: ${{ inputs.head }}
       run: |
-        node packages/daemon/dist/cli.js pr-check --event "$GITHUB_EVENT_PATH" --root . --records "$MOLE_RECORDS" --out "$RUNNER_TEMP/mole-check-run.json"
+        cd "$GITHUB_WORKSPACE"
+        if [ -n "$IN_BASE" ] && [ -n "$IN_HEAD" ]; then
+          node "$MOLE_CLI" pr-check --base "$IN_BASE" --head "$IN_HEAD" --root . --records "$MOLE_RECORDS" --out "$RUNNER_TEMP/mole-check-run.json"; exit 0
+        fi
+        case "$GITHUB_EVENT_NAME" in
+          pull_request|pull_request_target)
+            node "$MOLE_CLI" pr-check --event "$GITHUB_EVENT_PATH" --root . --records "$MOLE_RECORDS" --out "$RUNNER_TEMP/mole-check-run.json" ;;
+          push)
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              echo "::notice::first push of this branch: nothing to compare, mole check skipped"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            node "$MOLE_CLI" pr-check --base "$BEFORE" --head "$GITHUB_SHA" --root . --records "$MOLE_RECORDS" --out "$RUNNER_TEMP/mole-check-run.json" ;;
+          *)
+            echo "::notice::mole check runs on pull_request and push events (got $GITHUB_EVENT_NAME): skipped"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0 ;;
+        esac
 
     - name: post the check run
+      if: steps.check.outputs.skip != '1' && inputs.post != 'false'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}

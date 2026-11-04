@@ -1,6 +1,5 @@
-# Proves the root action.yml (raychu23/mole-code-map@v0) actually runs, mirroring the private repo's
-# .github/workflows/action-self-test.yml (T91-distribution-channels). Uses `uses: ./` since the tag this
-# action will be published under doesn't exist until a release is cut from this exported repo itself.
+# Proves the root action.yml works the way a THIRD-PARTY repo uses it: the caller's workspace is a separate
+# repo with its own decisions, and the action runs from its own checkout (github.action_path), not the workspace.
 name: mole action self-test
 
 on:
@@ -9,24 +8,45 @@ on:
   push:
     branches: [main]
     paths: ['action.yml', '.github/workflows/action-self-test.yml']
+  workflow_dispatch:
 
 permissions:
   contents: read
   checks: write
 
 jobs:
-  self-test:
+  as-a-third-party-repo:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          path: mole-action
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-      - uses: ./
+      - name: a tiny caller repo with one decision, then a change that touches it
+        id: fixture
+        run: |
+          git init -q -b main . 2>/dev/null || true
+          mkdir -p .mole/decisions src
+          printf 'export function foo(): number {\n  return 1;\n}\n' > src/a.ts
+          printf -- "---\nid: '0001'\ntitle: Foo returns one\nstatus: accepted\nscope:\n  - src/a.ts#foo\n---\nfoo stays 1.\n" > .mole/decisions/0001.md
+          git add .mole src && git -c user.name=t -c user.email=t@t commit -qm base
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'export function foo(): number {\n  return 2;\n}\n' > src/a.ts
+          git -c user.name=t -c user.email=t@t commit -qam change
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: run the action from its own folder, against the caller repo
+        id: mole
+        uses: ./mole-action
         with:
           token: ${{ github.token }}
+          post: 'false'
+          base: ${{ steps.fixture.outputs.base }}
+          head: ${{ steps.fixture.outputs.head }}
+      - name: the check names the governing decision
+        run: |
+          grep -q '0001' "$RUNNER_TEMP/mole-check-run.json"
+          echo "decision 0001 is in the check run"

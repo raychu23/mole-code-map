@@ -117,8 +117,9 @@ export async function demoCli(): Promise<number> {
       const v = after.violations[0]!;
       say(`\n   Caught: ${v.file}:${v.line} breaks ${v.decision.id} "${v.decision.title}".`);
       say(`   Why this decision exists: ${v.decision.why ?? '(no why recorded)'}`);
-      say('   In Claude Code, this text is what the agent sees before it reports the task done -- it does not');
-      say('   block the agent, it puts the decision and the reason back in front of a person before merge.');
+      say('   In Claude Code, the agent never gets this far: the edit hook refuses an edit that adds the violation,');
+      say('   and the stop hook sends the agent back with this decision and reason until it is fixed');
+      say('   (only rules it can check exactly; set MOLE_STOP_BLOCK=0 to make it advice only).');
     } else {
       say('\n   Unexpected: this edit was built to break D001 and did not get flagged. Please file this as a bug.');
     }

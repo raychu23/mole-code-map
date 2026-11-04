@@ -1,0 +1,32 @@
+# Proves the root action.yml (raychu23/mole-code-map@v0) actually runs, mirroring the private repo's
+# .github/workflows/action-self-test.yml (T91-distribution-channels). Uses `uses: ./` since the tag this
+# action will be published under doesn't exist until a release is cut from this exported repo itself.
+name: mole action self-test
+
+on:
+  pull_request:
+    paths: ['action.yml', '.github/workflows/action-self-test.yml']
+  push:
+    branches: [main]
+    paths: ['action.yml', '.github/workflows/action-self-test.yml']
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: ./
+        with:
+          token: ${{ github.token }}

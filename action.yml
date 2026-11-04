@@ -1,0 +1,53 @@
+# GitHub Marketplace Action entry point. This is a near-identical copy of .github/actions/mole-check/
+# action.yml, intentionally duplicated rather than referenced, because GitHub Marketplace publishing
+# requires exactly one action.yml/action.yaml AT THE REPO ROOT (sub-folder action files are usable via
+# `owner/repo/path@ref` but are never auto-listed on the Marketplace --
+# docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace, fetched
+# 2026-11-04). .github/actions/mole-check stays as the internal composite action this repo's own
+# mole-pr-check.yml workflow calls (./.github/actions/... paths cannot be used by an external repo); this
+# root file is what a THIRD PARTY repo would reference as `uses: raychu23/mole-code-map@v0`. Keep the two
+# in sync by hand if the underlying `mole pr-check` CLI contract changes -- there is no symlink-across-
+# filesystem trick that survives npm/git packing cleanly, and a build step here would need its own test
+# coverage without actually reducing the duplication risk.
+name: Mole decision check
+description: Decision records, code owners, past fixes and open questions for the lines a pull request changes, as one GitHub check run named "mole".
+author: Raymond Chu
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  token:
+    description: the workflow token (GITHUB_TOKEN) with checks write permission
+    required: true
+  records:
+    description: folder whose .mole/ holds the decision records (default the repository root)
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: build mole
+      shell: bash
+      run: |
+        npm ci --no-audit --no-fund
+        npx tsc -b
+        # same reasoning as .github/actions/mole-check/action.yml: `tsc -b` with no path builds the whole
+        # referenced project graph, so packages/flows (dynamically imported by packages/daemon/src/cli.ts
+        # at runtime for the `flows` subcommand) is actually built even though nothing imports it statically.
+
+    - name: mole pr-check
+      shell: bash
+      env:
+        MOLE_RECORDS: ${{ inputs.records }}
+      run: |
+        node packages/daemon/dist/cli.js pr-check --event "$GITHUB_EVENT_PATH" --root . --records "$MOLE_RECORDS" --out "$RUNNER_TEMP/mole-check-run.json"
+
+    - name: post the check run
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" --input "$RUNNER_TEMP/mole-check-run.json" --jq '.html_url'

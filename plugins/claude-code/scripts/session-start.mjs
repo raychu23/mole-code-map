@@ -5,6 +5,7 @@
 // Also records HEAD for this session, so the Stop hook can check everything the session changed, commits included.
 // Output (https://code.claude.com/docs/en/hooks#sessionstart): {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}
 // Nothing to say (no git, no notes, no Mole CLI) = no output, exit 0.
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { clip, collisionsStartText, decisionsBlock, emit, findMole, git, governingDecisions, moleJson, readInput, repoRoot, saveSession, sessionCollisions, weakSpotsLine } from './lib.mjs';
@@ -54,7 +55,33 @@ function main() {
   const input = readInput();
   const root = repoRoot(input.cwd || process.cwd());
   if (!root) return;
-  saveSession(input.session_id, { root, head: git(root, ['rev-parse', '--verify', '-q', 'HEAD'])?.trim() ?? '', started: new Date().toISOString(), source: input.source ?? '' });
+  // T92 review-1 fix (HIGH 2): snapshot every file already dirty at session start as a git blob
+  // (`git hash-object -w`, writes to .git/objects only -- never the working tree or the index), so Stop can
+  // later tell a violation that predates this session apart from one the session itself introduced, without
+  // ever checking anything out (lib.mjs's sessionBaselineContent / crispViolationsForOverlay).
+  const baselineBlobs = {};
+  const dirty = [];
+  for (const line of (git(root, ['status', '--porcelain', '--untracked-files=all']) ?? '').split('\n')) {
+    if (line.length < 4) continue;
+    const status = line.slice(0, 2);
+    if (status.includes('D')) continue; // deleted: no content to snapshot; Stop's HEAD fallback covers this file
+    for (const part of line.slice(3).split(' -> ')) dirty.push(part.replace(/^"|"$/g, ''));
+  }
+  // T92 review-2: ONE git process for all files (`--stdin-paths`, git-hash-object(1)), not one per file
+  // (500 dirty files: 8.2 s per-file vs ~0.06 s batched). Falls back to per-file only if the batch fails
+  // (e.g. a path that vanished between status and hashing), so one bad path never drops the whole baseline.
+  const files = dirty.filter((p) => existsSync(join(root, p)));
+  if (files.length) {
+    let shas;
+    try {
+      shas = execFileSync('git', ['-C', root, 'hash-object', '-w', '--stdin-paths'], { input: files.join('\n') + '\n', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).trim().split('\n');
+    } catch {
+      shas = undefined;
+    }
+    if (shas && shas.length === files.length) files.forEach((p, i) => { if (shas[i]) baselineBlobs[p] = shas[i]; });
+    else for (const p of files) { const sha = git(root, ['hash-object', '-w', '--', p])?.trim(); if (sha) baselineBlobs[p] = sha; }
+  }
+  saveSession(input.session_id, { root, head: git(root, ['rev-parse', '--verify', '-q', 'HEAD'])?.trim() ?? '', started: new Date().toISOString(), source: input.source ?? '', baselineBlobs });
   const mole = findMole(root);
   if (!mole) return;
   // T21: other parallel runs whose work meets this session's (a resumed or compacted session has steps already)

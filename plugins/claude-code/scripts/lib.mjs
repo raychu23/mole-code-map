@@ -3,7 +3,8 @@
 // stdout on exit 0. A hook never fails the session: any problem = exit 0 with no output (and a line on stderr, which Claude
 // Code only writes to its debug log for exit 0).
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -564,31 +565,278 @@ export function weakSpotsLine(mole, root, files) {
   return `weak spots (T35, no guarding test / no recent human read / governed by a red-yellow decision):\n${reasons.slice(0, 5).map((l) => `- ${l}`).join('\n')}`;
 }
 
-/** T27 rule violations (`mole rules --json`) whose file is among `files`, each citing its decision id. '' when none,
- * silent on a clean diff (M31b) and on a repo with no rules (checkRules returns 0 rules, 0 violations). `mole rules`
+/** T27/T92: raw `mole rules --json` result; undefined on any failure or when no CLI is found. `mole rules`
  * intentionally exits 1 when it finds a violation (packages/decisions/src/rules/cli.ts), so this calls the CLI
  * directly and reads stdout on BOTH exit 0 and exit 1 -- moleJson() in this file treats any non-zero exit as a
  * failure and would silently drop every real violation otherwise. */
-export function ruleViolationsText(mole, root, files) {
-  if (!mole || !existsSync(join(root, '.mole', 'decisions'))) return ''; // no decisions dir: nothing could have a rules: list
+export function rulesJson(mole, root) {
+  if (!mole) return undefined;
   let out;
   try {
     out = execFileSync(mole[0], [...mole[1], 'rules', '--json', '--root', root], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 20_000, maxBuffer: 64 * 1024 * 1024 });
   } catch (e) {
     out = typeof e.stdout === 'string' ? e.stdout : undefined; // exit 1 (violations found) still has valid JSON on stdout
   }
-  let r;
   try {
-    r = out ? JSON.parse(out) : undefined;
+    return out ? JSON.parse(out) : undefined;
   } catch {
-    return '';
+    return undefined;
   }
-  if (!r || !Array.isArray(r.violations) || !r.violations.length) return '';
+}
+
+/** T92: crisp (zero-model, deterministic: TS AST + dependency-cruiser, packages/decisions/src/rules) rule
+ * violations among `files`, raw -- each citing its decision id/title/why and the rule's kind/target/file/line.
+ * Shared by the Stop hook (block on the session's diff) and PreToolUse (deny a prospective edit): both need the
+ * SAME crisp signal, never the by-meaning/judged ones (those stay advisory, see verify.mjs). [] on a repo with no
+ * decisions dir, no CLI, or no violations in `files` -- never throws. */
+export function crispViolations(mole, root, files) {
+  if (!mole || !existsSync(join(root, '.mole', 'decisions'))) return [];
+  const r = rulesJson(mole, root);
+  if (!r || !Array.isArray(r.violations) || !r.violations.length) return [];
   const set = new Set(files);
-  const hits = r.violations.filter((v) => set.has(v.file));
+  return r.violations.filter((v) => set.has(v.file));
+}
+
+/** T92: a one-line, actionable fix for a crisp violation -- the decision's own authored `why` (the team's own
+ * words on why the rule exists) when the record has one, else a generic action naming the exact import/call to
+ * remove, grounded in the violation's own fields (never invented). */
+export function ruleFixHint(v) {
+  if (v.decision?.why) return v.decision.why;
+  return v.kind === 'import' ? `remove the import of ${v.target}` : `remove the call to ${v.target}`;
+}
+
+/** T27 rule violations (`mole rules --json`) whose file is among `files`, each citing its decision id. '' when none,
+ * silent on a clean diff (M31b) and on a repo with no rules (checkRules returns 0 rules, 0 violations). */
+export function ruleViolationsText(mole, root, files) {
+  const hits = crispViolations(mole, root, files);
   if (!hits.length) return '';
   const lines = hits.map((v) => `- ${v.file}:${v.line} ${v.kind} ${v.target} breaks ${v.decision.id} "${v.decision.title}"${v.decision.flag ? ` (${v.decision.flag})` : ''}${v.decision.why ? ` \u2014 ${v.decision.why}` : ''}`);
   return `mole: decision-rule violations in this session's diff (${hits.length}, T27 \`mole rules\`):\n${lines.join('\n')}`;
+}
+
+/** T92: does this repo have at least one `rules:` block anywhere in .mole/decisions? A cheap text scan (no YAML
+ * parse, no subprocess) so PreToolUse's crisp-deny check can skip the `mole rules` subprocess entirely on the
+ * (common) repo with no rules at all -- the fast path M31a's p95 budget needs. */
+export function hasAnyRules(root) {
+  const dir = join(root, '.mole', 'decisions');
+  let names;
+  try {
+    names = readdirSync(dir).filter((f) => f.endsWith('.md'));
+  } catch {
+    return false;
+  }
+  for (const name of names) {
+    try {
+      if (/^rules\s*:/m.test(readFileSync(join(dir, name), 'utf8'))) return true;
+    } catch {
+      // unreadable record: not a rules source, keep scanning the rest
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------- T92 review-1 fix: never write the real file
+/**
+ * Review 1 (HIGH 1): crispDenyReason used to write the prospective content onto the REAL working-tree path,
+ * run `mole rules`, then restore the original bytes in a `finally` -- a SIGKILL (or any crash) between the
+ * write and the restore left the user's file permanently holding an edit that was never applied (reproduced
+ * live, 4 log/t92-review-1.md: killedAt 956ms). The fix is to never open the real path for writing at all.
+ * This mirrors two well-known prior-art patterns for "check content without touching the file": eslint's own
+ * `--stdin --stdin-filename <path>` (https://eslint.org/docs/latest/use/command-line-interface#--stdin,
+ * fetched 2026-11-04 -- pipe the candidate content in, lint it as if it were at that path, never write
+ * anything), and dependency-cruiser's documented pattern of running its checks against a throwaway copy of a
+ * tree rather than the tree being edited (https://github.com/sverweij/dependency-cruiser/blob/main/doc/
+ * cli.md#programmatic-use, fetched 2026-11-04). Since dependency-cruiser (import rules) and our own TS-AST
+ * scan (call rules) both need real files on disk to resolve a module graph against (there is no "pass content
+ * as a string" API for either that also replays the *surrounding* repo's imports), the safe equivalent is a
+ * throwaway overlay directory that mirrors the repo with symlinks and holds ONLY the file(s) under test as
+ * real bytes -- buildOverlay() below. The real working tree is never opened O_WRONLY; a kill at any point
+ * leaves nothing behind but an orphaned temp directory (best-effort removed, and OS-temp-cleaned regardless).
+ */
+
+/**
+ * A throwaway directory at the same relative shape as `root`, built entirely from symlinks, except the paths
+ * named in `overrides` (Map<relPath, content|undefined>) which become REAL files holding `content` -- or are
+ * left absent entirely when `content` is undefined (simulates "this file does not exist in this snapshot").
+ * Only directories on the path to an override are ever created for real; every sibling is one symlink (cheap:
+ * no tree copy, however large the repo). `root` itself is never opened for writing. Returns the overlay root
+ * and a `cleanup()` that best-effort removes it (never throws).
+ */
+export function buildOverlay(root, overrides) {
+  const dir = mkdtempSync(join(tmpdir(), 'mole-overlay-'));
+  const needed = new Set(['']);
+  for (const rel of overrides.keys()) {
+    const parts = rel.split('/');
+    let p = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      p = p ? `${p}/${parts[i]}` : parts[i];
+      needed.add(p);
+    }
+  }
+  const mirror = (relDir) => {
+    const srcDir = relDir ? join(root, relDir) : root;
+    const dstDir = relDir ? join(dir, relDir) : dir;
+    mkdirSync(dstDir, { recursive: true });
+    let entries = [];
+    try {
+      entries = readdirSync(srcDir, { withFileTypes: true });
+    } catch {
+      entries = []; // srcDir doesn't exist in the real tree (e.g. a brand-new nested path): nothing to mirror
+    }
+    for (const e of entries) {
+      const childRel = relDir ? `${relDir}/${e.name}` : e.name;
+      if (needed.has(childRel)) {
+        mirror(childRel);
+        continue;
+      }
+      if (overrides.has(childRel)) continue; // an override target: handled below, real content or absent
+      try {
+        symlinkSync(join(srcDir, e.name), join(dstDir, e.name));
+      } catch {
+        // a name collision or unreadable entry: skip it, never throw out of a hook
+      }
+    }
+  };
+  mirror('');
+  for (const [rel, content] of overrides) {
+    if (content === undefined) continue; // absent in this snapshot: leave the hole, never fall back to the real file
+    const abs = join(dir, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+  }
+  return {
+    dir,
+    cleanup: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // best effort: an orphaned temp dir is cleaned by the OS eventually, never fail the hook over it
+      }
+    },
+  };
+}
+
+/** `${decision id}::${rule}::${file}::${target}` -- a violation's identity independent of its line number, so an
+ * unrelated edit elsewhere in the file (which can shift line numbers) never makes an old violation look "new"
+ * (T92 review-1 HIGH 2). Shared by PreToolUse's before/after diff and Stop's session-baseline/now diff. */
+export function violationKey(v) {
+  return `${v.decision?.id}::${v.rule}::${v.file}::${v.target}`;
+}
+
+/** A hash of every rules-bearing decision record's own text (name + content), so the rules-result cache below
+ * is invalidated the moment a decision's `rules:` block changes -- never served stale just because a file's
+ * content hash happened to repeat. Cheap (same files hasAnyRules already scans; no subprocess). */
+export function rulesFingerprint(root) {
+  const dir = join(root, '.mole', 'decisions');
+  let names;
+  try {
+    names = readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
+  } catch {
+    return '';
+  }
+  const h = createHash('sha256');
+  for (const name of names) {
+    let text;
+    try {
+      text = readFileSync(join(dir, name), 'utf8');
+    } catch {
+      continue;
+    }
+    if (/^rules\s*:/m.test(text)) h.update(name).update('\u0000').update(text).update('\u0000');
+  }
+  return h.digest('hex');
+}
+
+function rulesCacheDir() {
+  return join(process.env.CLAUDE_PLUGIN_DATA || join(tmpdir(), 'mole-claude-code'), 'rules-cache');
+}
+
+/** T92 review-1 LOW: a (rulesFingerprint, rel path, content) -> violations[] cache so re-checking content this
+ * process (or an earlier edit in the same session) already checked never re-spawns `mole rules`. Written
+ * atomically (temp file + rename) so two concurrent hook processes writing the same key can never corrupt it
+ * (one wins, both wrote identical bytes anyway since the key already encodes the exact content). */
+function rulesCacheGet(key) {
+  try {
+    return JSON.parse(readFileSync(join(rulesCacheDir(), `${key}.json`), 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+function rulesCacheSet(key, violations) {
+  try {
+    const dir = rulesCacheDir();
+    mkdirSync(dir, { recursive: true });
+    const tmp = join(dir, `.tmp-${process.pid}-${randomBytes(4).toString('hex')}`);
+    writeFileSync(tmp, JSON.stringify(violations));
+    renameSync(tmp, join(dir, `${key}.json`));
+    pruneRulesCache(dir);
+  } catch {
+    // best effort: a cache miss next time just costs one more `mole rules` call, never a crash
+  }
+}
+
+const RULES_CACHE_CAP = 500;
+function pruneRulesCache(dir) {
+  try {
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+    if (files.length <= RULES_CACHE_CAP) return;
+    const withTime = files.map((f) => ({ f, t: statSync(join(dir, f)).mtimeMs }));
+    withTime.sort((a, b) => a.t - b.t);
+    for (const { f } of withTime.slice(0, withTime.length - RULES_CACHE_CAP)) rmSync(join(dir, f), { force: true });
+  } catch {
+    // pruning is housekeeping, never a hook failure
+  }
+}
+
+/** T92 review-1 HIGH 1 + LOW: crisp violations `rel` would have if its content were exactly `content`, computed
+ * on a throwaway overlay (buildOverlay) -- the real path at `root`/`rel` is never opened for writing. `content
+ * === undefined` means "this file does not exist in this snapshot" (a brand-new file's `before` state): no
+ * violations are possible for a file that isn't there. Cached per (rulesFingerprint, rel, content) so the SAME
+ * content (e.g. the previous edit's `after` becoming this edit's `before`) only ever runs `mole rules` once. */
+export function crispViolationsForContent(mole, root, rel, content) {
+  if (content === undefined) return [];
+  const key = createHash('sha256').update(rulesFingerprint(root)).update('\u0000').update(rel).update('\u0000').update(content).digest('hex');
+  const cached = rulesCacheGet(key);
+  if (cached !== undefined) return cached;
+  const { dir, cleanup } = buildOverlay(root, new Map([[rel, content]]));
+  let violations = [];
+  try {
+    violations = crispViolations(mole, dir, [rel]);
+  } finally {
+    cleanup();
+  }
+  rulesCacheSet(key, violations);
+  return violations;
+}
+
+/** T92 review-1 HIGH 2: crisp violations for exactly the files named in `overrides` (Map<rel, content |
+ * undefined>), evaluated on a throwaway overlay holding that recorded content instead of the real file(s) --
+ * Stop's session-baseline check (what the files looked like before this session touched them), never a git
+ * checkout (which would disturb the real working tree mid-session). Not cached: baseline combinations are
+ * session-specific and rarely repeat, unlike PreToolUse's single-file before/after. */
+export function crispViolationsForOverlay(mole, root, overrides) {
+  const { dir, cleanup } = buildOverlay(root, overrides);
+  try {
+    return crispViolations(mole, dir, [...overrides.keys()]);
+  } finally {
+    cleanup();
+  }
+}
+
+/** T92 review-1 HIGH 2: the content `file` had BEFORE this session touched it -- never by checking out. If the
+ * file was already dirty at SessionStart, session-start.mjs recorded its exact bytes as a git blob
+ * (`git hash-object -w`, which writes to .git/objects only, never the working tree or the index) in
+ * `sess.baselineBlobs[file]`; otherwise the file's content at `sess.head` (or current HEAD, for a session that
+ * never got a SessionStart record) is the baseline. undefined means the file did not exist at the baseline
+ * (e.g. the session itself created it) -- not an error. */
+export function sessionBaselineContent(root, sess, file) {
+  if (sess?.baselineBlobs && Object.prototype.hasOwnProperty.call(sess.baselineBlobs, file)) {
+    return git(root, ['cat-file', '-p', sess.baselineBlobs[file]]);
+  }
+  const head = sess?.head || git(root, ['rev-parse', '--verify', '-q', 'HEAD'])?.trim();
+  if (!head) return undefined;
+  return git(root, ['cat-file', '-p', `${head}:${file}`]);
 }
 
 /** PreToolUse: decisions already added as context this session, so each is added at most once (never a second time, never a block). */

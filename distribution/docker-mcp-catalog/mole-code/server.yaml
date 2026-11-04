@@ -1,0 +1,21 @@
+name: mole-code
+image: mcp/mole-code
+type: server
+meta:
+  category: developer-tools
+  tags:
+    - developer-tools
+    - code-review
+    - decisions
+about:
+  title: Mole
+  description: >-
+    The team's decisions behind the code (tenets, decisions, exceptions) at the lines a file touches,
+    read-only, no model calls. Same tools as the stdio mole-mcp server shipped in the mole-code npm
+    package.
+  icon: https://raychu23.github.io/mole-code-map/favicon.ico
+source:
+  project: https://github.com/raychu23/mole-code-map
+  commit: 0000000000000000000000000000000000000000
+config:
+  description: No configuration required. Optional env vars, see docs/mcp.md.

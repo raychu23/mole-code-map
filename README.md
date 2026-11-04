@@ -98,7 +98,7 @@ mole demo -- a 30-second walkthrough, no network, no model calls, nothing leaves
    D003  No dynamic eval anywhere in src/
 
 2. Checking the repo as it stands (`mole rules`):
-   3 rules (2 import, 1 call) from 3 decisions: 0 violations (726 ms)
+   3 rules (2 import, 1 call) from 3 decisions: 0 violations (458 ms)
    Clean: nothing in the sample code breaks a decision yet.
 
 3. Now simulate an agent (or a teammate) making a change that breaks D001:
@@ -108,11 +108,12 @@ mole demo -- a 30-second walkthrough, no network, no model calls, nothing leaves
    src/payments/checkout.ts:2  import ../legacy-billing/client.js  breaks D001 "Payments never imports
    the legacy billing client directly" (green accepted)
        why: legacy-billing has no refund path; payments must go through src/billing/
-   3 rules (2 import, 1 call) from 3 decisions: 1 violation (70 ms)
+   3 rules (2 import, 1 call) from 3 decisions: 1 violation (41 ms)
 
    Caught: src/payments/checkout.ts:2 breaks D001.
-   In Claude Code, this text is what the agent sees before it reports the task done -- it does not
-   block the agent, it puts the decision and the reason back in front of a person before merge.
+   In Claude Code, the agent never gets this far: the edit hook refuses an edit that adds the violation,
+   and the stop hook sends the agent back with this decision and reason until it is fixed
+   (only rules it can check exactly; set MOLE_STOP_BLOCK=0 to make it advice only).
 ```
 
 Static frame of the same transcript, generated from it so the two cannot drift apart:
@@ -249,6 +250,59 @@ A startup doing one of these pieces well is validation that the piece matters, n
 exist — judge the whole assembly. The nearest real competitive pressure is Claude Code's own auto memory and
 CodeRabbit/Greptile's "learnings" features: both are reachable, free, zero-install alternatives for a team
 that doesn't need enforcement, just a reminder.
+
+## AGENTS.md / CLAUDE.md precedence
+
+Put Mole's decisions above a stale instruction file's own wording, in the place agents already treat as
+instructions: the project's own `AGENTS.md`/`CLAUDE.md` (read by Claude Code, Codex, Cursor, Gemini CLI). Add
+this one sentence. Why one sentence can matter: in a 320-run study of Claude Code and Codex CLI, a single
+precedence sentence in the user's instruction file raised the share of choices that followed the existing
+code over a stale file from 4.2% to 91.4% ([arXiv 2610.30571](https://arxiv.org/abs/2610.30571), 2026-10).
+That study gave the *code* precedence; giving Mole's decisions precedence is the same mechanism but has not
+been measured yet.
+
+```markdown
+When a `.mole/decisions/*.md` rule and this file's guidance disagree, the Mole decision wins; treat a
+Mole Stop-hook violation (`decision: "block"`) the same as a failing test — fix the code before finishing.
+```
+
+## CI: block a PR on a decision-rule violation
+
+Mole's own repository runs a required GitHub Actions check this way (`.github/workflows/mole-pr-check.yml`
++ `.github/actions/mole-check`) — not a new, invented Action, the same one dogfooded here. For a repo built
+from this monorepo's own checkout, copy both files as-is. For a repo that only has the published
+`mole-code` npm package (no Mole source checkout), swap the "build mole" step for installing the package:
+
+```yaml
+name: mole pr-check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  checks: write
+jobs:
+  mole:
+    name: mole-pr-check (runner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: install mole-code
+        run: npm install --no-save mole-code
+      - name: mole pr-check
+        run: npx mole-code pr-check --event "$GITHUB_EVENT_PATH" --root . --out "$RUNNER_TEMP/mole-check-run.json"
+      - name: post the check run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" --input "$RUNNER_TEMP/mole-check-run.json" --jq '.html_url'
+```
+
+Make "mole" a required status check under branch protection and a PR can't merge while it fails. Forked
+PRs get a read-only token from GitHub, so the POST step is skipped there by GitHub's own rule, not Mole's.
 
 ## Limits
 

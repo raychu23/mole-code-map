@@ -12,9 +12,9 @@ import { registerCouplingTool } from './coupling-tool.js'; // T77: logical coupl
 import { registerOutcomesTool } from './outcomes-tool.js'; // T81 (D66): outcome tracking log -- prediction vs outcome, due/overdue checks (read-only)
 import { executeTool, GEN_AI } from '@mole/telemetry';
 import type { Change } from '@mole/history';
-import { resolve } from 'node:path';
 import { boundedPage } from './limit.js';
 import { READ_ONLY_ANNOTATIONS, sc } from './annotations.js';
+import { confineAllToRoot, confineToRoot } from './safe-path.js'; // T91 review fix HIGH 2: every path-shaped tool arg stays inside the server root
 
 export interface MoleMcpOptions extends EnsureOptions {
   /** Do not spawn a daemon if none runs (tests). */
@@ -183,8 +183,8 @@ export function createServer(opts: MoleMcpOptions): McpServer {
     async (args) => {
       const modes = [args.sha !== undefined, args.diff !== undefined, args.worktree === true].filter(Boolean).length;
       if (modes !== 1) return { content: [{ type: 'text' as const, text: 'mole_check: give exactly one of sha, diff (+ base) or worktree: true' }], isError: true };
-      const root = resolve(opts.root, args.root ?? '.');
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
         const json = await checkJson(root, args);
         // T37: files-scoped view, so a hook can ask "what does mole_check say about just the file I'm about to touch"
         if (args.files?.length) {
@@ -230,10 +230,10 @@ export function createServer(opts: MoleMcpOptions): McpServer {
       outputSchema: z.object({ decisions: z.array(z.unknown()), problems: z.array(z.unknown()).optional(), total: z.number().optional(), offset: z.number().optional(), hasMore: z.boolean().optional(), nextOffset: z.number().optional(), truncated: z.string().optional() }).passthrough(),
     },
     async (args) => {
-      const root = resolve(opts.root, args.root ?? '.');
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
         const { decisions, loadGraph } = await import('@mole/decisions');
-        const json = decisions(root, { adrDirs: args.adrDir ?? [], testReport: args.testReport ? resolve(root, args.testReport) : undefined });
+        const json = decisions(root, { adrDirs: confineAllToRoot(root, args.adrDir, 'adrDir') ?? [], testReport: args.testReport ? confineToRoot(root, args.testReport, 'testReport') : undefined });
         if (args.files?.length) {
           const want = new Set(args.files);
           const scopeMatches = (scopeFile: string, changed: string) => scopeFile === changed || (scopeFile.endsWith('/') && (changed === scopeFile.slice(0, -1) || changed.startsWith(scopeFile)));
@@ -329,11 +329,14 @@ export function createServer(opts: MoleMcpOptions): McpServer {
       }).passthrough(),
     },
     async (args) => {
-      const root = resolve(opts.root, args.root ?? '.');
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
         const { coverage, scanCoverage } = await import('./_oss-coverage-stub.js');
         if (args.file) {
-          const r = await coverage(root, args.file);
+          // T91 review fix MEDIUM: `file` is a path-shaped arg like any other -- confine it the same way
+          // `root` already is, so it can't point outside the server root (absolute escape or `..` traversal).
+          const file = confineToRoot(root, args.file, 'file');
+          const r = await coverage(root, file);
           return { content: [{ type: 'text' as const, text: JSON.stringify(r, null, 2) }], structuredContent: sc(r) };
         }
         const scan = scanCoverage(root);
@@ -375,8 +378,8 @@ export function createServer(opts: MoleMcpOptions): McpServer {
     async (args) => {
       const modes = [args.sha !== undefined, args.diff !== undefined, args.worktree === true].filter(Boolean).length;
       if (modes !== 1) return { content: [{ type: 'text' as const, text: 'mole_interrogate: give exactly one of sha, diff (+ base) or worktree: true' }], isError: true };
-      const root = resolve(opts.root, args.root ?? '.');
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
         const { interrogate } = await import('@mole/intake');
         const change = args.sha ? { sha: args.sha } : args.diff ? { diffFile: args.diff, base: args.base } : { worktree: true as const };
         const result = await interrogate(root, change);
@@ -446,8 +449,9 @@ export interface CheckArgs {
  */
 export async function checkJson(root: string, args: CheckArgs): Promise<{ result: Record<string, unknown>; notices: string[] }> {
   const { questions } = await import('@mole/questions');
-  const change: Change = args.diff !== undefined ? { diffFile: resolve(root, args.diff), base: args.base } : args.sha !== undefined ? { sha: args.sha } : { worktree: true };
-  const q = await questions(root, change, { fixRule: args.fixRule, notesRoot: args.notesRoot ? resolve(root, args.notesRoot) : undefined });
+  const diffPath = args.diff !== undefined ? confineToRoot(root, args.diff, 'diff') : undefined;
+  const change: Change = diffPath !== undefined ? { diffFile: diffPath, base: args.base } : args.sha !== undefined ? { sha: args.sha } : { worktree: true };
+  const q = await questions(root, change, { fixRule: args.fixRule, notesRoot: args.notesRoot ? confineToRoot(root, args.notesRoot, 'notesRoot') : undefined });
   const { notes: _notes, guards: _guards, ...r } = q.facts;
   return { result: { ...r, questions: q.questions }, notices: q.notices };
 }

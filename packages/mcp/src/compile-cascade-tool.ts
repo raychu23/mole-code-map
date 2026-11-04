@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { sc } from './annotations.js';
+import { confineAllToRoot, confineToRoot } from './safe-path.js'; // T91 review fix HIGH 2: client-supplied path args only
 
 export function registerCompileAndCascadeTools(server: McpServer, opts: { root: string }): void {
   server.registerTool(
@@ -28,14 +29,14 @@ export function registerCompileAndCascadeTools(server: McpServer, opts: { root: 
       outputSchema: z.object({ id: z.string().optional(), version: z.unknown().optional() }).passthrough(),
     },
     async (args) => {
-      const root = resolve(opts.root, args.root ?? '.');
-      const recordsRoot = args.records ? resolve(root, args.records) : root;
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
+        const recordsRoot = args.records ? confineToRoot(root, args.records, 'records') : root;
         const { draftChecksFor, hermesLlmClient, loadGraph, saveDraft, contentAnchorsOf } = await import('@mole/decisions');
-        const graph = loadGraph(recordsRoot, { adrDirs: args.adrDir ?? [] });
+        const graph = loadGraph(recordsRoot, { adrDirs: confineAllToRoot(recordsRoot, args.adrDir, 'adrDir') ?? [] });
         const node = graph.nodes.find((n) => n.id === args.id);
         if (!node) return { content: [{ type: 'text' as const, text: `mole_compile_draft: no decision ${args.id} in ${recordsRoot}` }], isError: true };
-        const decisionText = args.from ? readFileSync(resolve(root, args.from), 'utf8') : readFileSync(resolve(recordsRoot, node.file), 'utf8');
+        const decisionText = args.from ? readFileSync(confineToRoot(root, args.from, 'from'), 'utf8') : readFileSync(resolve(recordsRoot, node.file), 'utf8');
         const existingMatch = contentAnchorsOf(recordsRoot, node).map((a: { pattern: string; in?: string; why?: string }) => ({ pattern: a.pattern, ...(a.in ? { in: a.in } : {}), ...(a.why ? { why: a.why } : {}) }));
         const draft = await draftChecksFor(hermesLlmClient(), {
           id: node.id,
@@ -76,9 +77,9 @@ export function registerCompileAndCascadeTools(server: McpServer, opts: { root: 
       outputSchema: z.object({ recordPath: z.string().optional(), draft: z.unknown().optional() }).passthrough(),
     },
     async (args) => {
-      const root = resolve(opts.root, args.root ?? '.');
-      const recordsRoot = args.records ? resolve(root, args.records) : root;
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
+        const recordsRoot = args.records ? confineToRoot(root, args.records, 'records') : root;
         const { approveDraft, rejectDraft } = await import('@mole/decisions');
         if (args.action === 'approve') {
           if (!args.approver) return { content: [{ type: 'text' as const, text: 'mole_compile_review: approve needs approver' }], isError: true };
@@ -117,17 +118,18 @@ export function registerCompileAndCascadeTools(server: McpServer, opts: { root: 
       outputSchema: z.object({ decisions: z.array(z.unknown()).optional(), tokens: z.unknown().optional(), cost: z.unknown().optional() }).passthrough(),
     },
     async (args) => {
-      const root = resolve(opts.root, args.root ?? '.');
-      const recordsRoot = args.records ? resolve(root, args.records) : root;
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
+        const recordsRoot = args.records ? confineToRoot(root, args.records, 'records') : root;
         const { cascadeCheck, decisionTextFromRecords, hermesLlmClient, loadGraph } = await import('@mole/decisions');
-        const graph = loadGraph(recordsRoot, { adrDirs: args.adrDir ?? [] });
+        const adrDirs = confineAllToRoot(recordsRoot, args.adrDir, 'adrDir') ?? [];
+        const graph = loadGraph(recordsRoot, { adrDirs });
         const r = await cascadeCheck({
           root,
           base: args.base,
           head: args.head,
           recordsRoot,
-          adrDirs: args.adrDir ?? [],
+          adrDirs,
           llm: args.noLlm ? undefined : hermesLlmClient(),
           decisionText: decisionTextFromRecords(recordsRoot, graph.nodes),
         });

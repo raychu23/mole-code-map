@@ -10,8 +10,61 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { clip, collisionsStopText, decisionsDiffText, emit, findMole, git, loadSession, moleJson, readInput, repoRoot, ruleViolationsText, sessionCollisions } from './lib.mjs';
+import { clip, collisionsStopText, crispViolations, crispViolationsForOverlay, decisionsDiffText, emit, findMole, git, loadSession, moleJson, readInput, repoRoot, ruleFixHint, ruleViolationsText, saveSession, sessionBaselineContent, sessionCollisions, violationKey } from './lib.mjs';
 import { runVerifier, verifierParts } from './verify.mjs';
+
+// T92/D102: crisp (zero-model, deterministic) decision-rule violations block Claude from stopping by default --
+// the exact contract Anthropic's own hooks docs ship for Stop (decision: "block" + reason; fetched 2026-11-04,
+// code.claude.com/docs/en/hooks#stop-decision-control; see this task's 4 log/prior-art.md). By-meaning/judged
+// matches (verify.mjs's verifierParts) stay advisory text only -- never this block path; only a rule a decision
+// record itself wrote (packages/decisions/src/rules, T27) counts.
+// T92 review-1 fix (HIGH 2): this used to block on ANY crisp violation among `files` (what the session's diff
+// touched), including one that pre-dates the session entirely (already committed to HEAD, or already dirty in
+// the working tree before SessionStart ever ran) -- a false-positive block on pre-existing state, not on
+// anything this session did. Fixed: only the files that have a violation RIGHT NOW are checked against their
+// SESSION-START baseline (lib.mjs's sessionBaselineContent: the file's content at SessionStart, via a recorded
+// git blob for an already-dirty file or the session's head commit otherwise -- never a checkout), evaluated on
+// a throwaway overlay (crispViolationsForOverlay), and only a violation key (decision id + rule + file +
+// target, lib.mjs's violationKey) present now but absent from that baseline blocks. Semantics vs PreToolUse:
+// PreToolUse denies per-EDIT (before = this file's content right before the edit, after = right after it, so
+// it catches a new violation at the instant it would be introduced); Stop blocks per-SESSION (before = this
+// file's content at SessionStart, now = its content at Stop time, so it catches anything still unresolved when
+// the agent tries to finish, no matter which edit introduced it or whether PreToolUse saw that edit at all --
+// e.g. a violation from a shell command, a merge, or a file PreToolUse's Edit|Write|MultiEdit matcher never saw).
+// Loop safety, belt and suspenders:
+//   1. stop_hook_active (the docs' own field): true means Claude is already continuing from an earlier block this
+//      turn -- never block again, so a condition that never resolves can't spin forever.
+//   2. a small per-session counter (MOLE_STOP_BLOCK_CAP, default 3) on top of Claude Code's own built-in
+//      8-consecutive-continuation cap (CLAUDE_CODE_STOP_HOOK_BLOCK_CAP) -- the UX research (ux-research 11-04,
+//      item #1) says reuse that cap, don't build a new one; this counter is a cheap, independently-testable
+//      defense-in-depth on top of it, not a replacement.
+// Opt-out: MOLE_STOP_BLOCK=0 (documented in plugins/claude-code/README.md and scripts/public-README.md).
+const STOP_BLOCK_CAP = Number(process.env.MOLE_STOP_BLOCK_CAP) > 0 ? Number(process.env.MOLE_STOP_BLOCK_CAP) : 3;
+
+function stopBlockDecision(mole, root, files, input) {
+  if (process.env.MOLE_STOP_BLOCK === '0') return undefined;
+  if (input.stop_hook_active === true) return undefined; // already continuing from a block: never re-block
+  const now = crispViolations(mole, root, files);
+  if (!now.length) return undefined;
+  // only the files with a violation right now need a baseline check -- a file with no violation now can't
+  // contribute a "new" one, whatever its baseline looked like.
+  const sess = loadSession(input.session_id);
+  const nowFiles = [...new Set(now.map((v) => v.file))];
+  const overrides = new Map(nowFiles.map((f) => [f, sessionBaselineContent(root, sess, f)]));
+  const baseline = crispViolationsForOverlay(mole, root, overrides);
+  const baseKeys = new Set(baseline.map(violationKey));
+  const hits = now.filter((v) => !baseKeys.has(violationKey(v)));
+  if (!hits.length) return undefined; // every violation present now already existed at session start
+  const sessState = sess ?? {};
+  const blocks = sessState.stopBlocks ?? 0;
+  if (blocks >= STOP_BLOCK_CAP) return undefined; // our own cap reached: let Claude stop rather than loop forever
+  saveSession(input.session_id, { ...sessState, stopBlocks: blocks + 1 });
+  const lines = hits.map((v) => `- ${v.file}:${v.line} ${v.kind} ${v.target} breaks ${v.decision.id} "${v.decision.title}" \u2014 fix: ${ruleFixHint(v)} (rule ${v.rule} at ${v.decision.file}:${v.decision.line})`);
+  return {
+    decision: 'block',
+    reason: `Mole: this change breaks ${hits.length} accepted decision rule${hits.length === 1 ? '' : 's'} (mole rules, zero-model, deterministic -- not a guess):\n${lines.join('\n')}\n\nFix the code (or get the decision changed), then stop. (opt out: MOLE_STOP_BLOCK=0; cap ${STOP_BLOCK_CAP}/session, then Claude Code's own ${process.env.CLAUDE_CODE_STOP_HOOK_BLOCK_CAP ?? 8}-continuation cap applies)`,
+  };
+}
 
 const range = (h) => (h.oldLines > 1 ? `${h.oldStart}-${h.oldStart + h.oldLines - 1}` : `${h.oldStart}`);
 const one = (s, n = 240) => {
@@ -128,15 +181,17 @@ function main() {
   // can say "this violates decision X, because ..."
   const sess = loadSession(input.session_id);
   const verified = verifierParts(runVerifier(mole, root, sess && sess.root === root ? sess.head : undefined));
+  const block = stopBlockDecision(mole, root, files, input); // T92/D102: crisp-rule violation -> decision: "block"
   const parts = [verified.text, check ? format(check.r, check.label) : '', decisions, violations, coll, claims.join('\n')].filter(Boolean);
-  if (!parts.length) return;
-  const msg = { systemMessage: clip(parts.join('\n\n')) };
+  if (!parts.length && !block) return;
+  const msg = parts.length ? { systemMessage: clip(parts.join('\n\n')) } : {};
   const cont = [];
   if (verified.continueText) cont.push(verified.continueText);
   if (check && check.r.questions?.length) cont.push(`Mole asks about the lines you just edited (answer briefly, then stop):\n${check.r.questions.map((q, i) => `${i + 1}. ${q.text}`).join('\n')}`);
   if (cont.length && process.env.MOLE_STOP_CONTINUE === '1' && input.stop_hook_active !== true) {
     msg.hookSpecificOutput = { hookEventName: 'Stop', additionalContext: clip(cont.join('\n\n')) };
   }
+  if (block) Object.assign(msg, block); // decision: "block" + reason -- top-level fields, Stop's own contract
   emit(msg);
 }
 

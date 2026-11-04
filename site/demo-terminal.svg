@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="942" height="682" viewBox="0 0 942 682" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13">
-  <rect width="942" height="682" rx="10" fill="#060708" stroke="#22282f"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="942" height="700" viewBox="0 0 942 700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13">
+  <rect width="942" height="700" rx="10" fill="#060708" stroke="#22282f"/>
   <rect width="942" height="32" rx="10" fill="#0e1116"/>
   <rect y="22" width="942" height="10" fill="#0e1116"/>
   <circle cx="22" cy="16" r="5" fill="#f87171"/>
@@ -18,7 +18,7 @@
   <text x="20" y="208" fill="#9aa5b1">   no model call, just an import/call-graph scan (dependency-cruiser + the TypeScript compiler API).</text>
   <text x="20" y="226" fill="#e6e9ec"></text>
   <text x="20" y="244" fill="#6ee7b7">2. Checking the repo as it stands (`mole rules`):</text>
-  <text x="20" y="262" fill="#9aa5b1">   3 rules (2 import, 1 call) from 3 decisions: 0 violations (726 ms)</text>
+  <text x="20" y="262" fill="#9aa5b1">   3 rules (2 import, 1 call) from 3 decisions: 0 violations (458 ms)</text>
   <text x="20" y="280" fill="#9aa5b1">   Clean: nothing in the sample code breaks a decision yet.</text>
   <text x="20" y="298" fill="#e6e9ec"></text>
   <text x="20" y="316" fill="#6ee7b7">3. Now simulate an agent (or a teammate) making a change that breaks D001:</text>
@@ -31,13 +31,14 @@
   <text x="20" y="442" fill="#9aa5b1">   the legacy billing client directly" (green accepted)</text>
   <text x="20" y="460" fill="#9aa5b1">       why: legacy-billing has no refund path; payments must go through src/billing/</text>
   <text x="20" y="478" fill="#9aa5b1">       rule mole-D001-1 at .mole/decisions/D001-no-legacy-billing.md:6</text>
-  <text x="20" y="496" fill="#f87171">   3 rules (2 import, 1 call) from 3 decisions: 1 violation (70 ms)</text>
+  <text x="20" y="496" fill="#f87171">   3 rules (2 import, 1 call) from 3 decisions: 1 violation (41 ms)</text>
   <text x="20" y="514" fill="#e6e9ec"></text>
   <text x="20" y="532" fill="#f87171">   Caught: src/payments/checkout.ts:2 breaks D001 "Payments never imports the legacy billing client directly".</text>
   <text x="20" y="550" fill="#9aa5b1">   Why this decision exists: legacy-billing has no refund path; payments must go through src/billing/</text>
-  <text x="20" y="568" fill="#9aa5b1">   In Claude Code, this text is what the agent sees before it reports the task done -- it does not</text>
-  <text x="20" y="586" fill="#9aa5b1">   block the agent, it puts the decision and the reason back in front of a person before merge.</text>
-  <text x="20" y="604" fill="#e6e9ec"></text>
-  <text x="20" y="622" fill="#9aa5b1">That is the whole loop: write a decision once in plain language, keep it in a file next to the code,</text>
-  <text x="20" y="640" fill="#9aa5b1">and every check from here on is free (no tokens, no model) until the code actually moves away from it.</text>
+  <text x="20" y="568" fill="#f87171">   In Claude Code, the agent never gets this far: the edit hook refuses an edit that adds the violation,</text>
+  <text x="20" y="586" fill="#9aa5b1">   and the stop hook sends the agent back with this decision and reason until it is fixed</text>
+  <text x="20" y="604" fill="#9aa5b1">   (only rules it can check exactly; set MOLE_STOP_BLOCK=0 to make it advice only).</text>
+  <text x="20" y="622" fill="#e6e9ec"></text>
+  <text x="20" y="640" fill="#9aa5b1">That is the whole loop: write a decision once in plain language, keep it in a file next to the code,</text>
+  <text x="20" y="658" fill="#9aa5b1">and every check from here on is free (no tokens, no model) until the code actually moves away from it.</text>
 </svg>

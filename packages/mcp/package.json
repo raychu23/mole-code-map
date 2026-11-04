@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "mole-mcp": "dist/cli.js"
+    "mole-mcp": "dist/cli.js",
+    "mole-mcp-http": "dist/http-cli.js"
   },
   "scripts": {
     "build": "tsc -b"

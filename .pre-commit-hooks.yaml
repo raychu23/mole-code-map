@@ -1,0 +1,55 @@
+# .pre-commit-hooks.yaml: makes this repo usable as a pre-commit hook SOURCE, per pre-commit.com's own
+# spec (fetched 2026-11-04) -- there is no central submission/registry; any repo with this file at its
+# root can be referenced directly by another repo's own .pre-commit-config.yaml, e.g.:
+#
+#   repos:
+#     - repo: https://github.com/raychu23/mole-code-map
+#       rev: v0.5.0
+#       hooks:
+#         - id: mole-check
+#
+# Why `language: node` alone wasn't enough: it ALWAYS additionally npm-installs this cloned repo itself
+# (`git+file://<checkout>`, see pre-commit's own languages/node.py install_environment -- it does this
+# whenever a package.json exists at the hook repo's root, which ours does: the monorepo workspaces
+# manifest, intentionally `private: true` with no `bin`). That install succeeds but links nothing, so
+# `entry: mole ...` alone had nothing to resolve against ("Executable mole not found").
+#
+# The fix two real node-based pre-commit hook repos already use for exactly this (a hook repo that is NOT
+# itself the npm package providing the binary), both fetched 2026-11-04:
+#   - github.com/pre-commit/mirrors-eslint/.pre-commit-hooks.yaml: `entry: eslint`, `language: node`,
+#     `additional_dependencies: ["eslint@10.2.0"]` -- the mirror repo ships no eslint code of its own; the
+#     REAL published npm package is pulled in via `additional_dependencies` and provides the executable
+#     `entry` resolves against.
+#   - github.com/pre-commit/mirrors-prettier (referenced the same way in real .pre-commit-config.yaml files,
+#     e.g. a `.pre-commit-hooks.yaml`-shaped config quoted at gatlenculp.medium.com's 2025 pre-commit guide):
+#     `id: prettier`, `additional_dependencies: ["prettier@3.4.2"]` -- identical shape, different package.
+# This file follows the identical pattern: `mole-code` (release/mole-code/package.json, bin: mole, mole-mcp)
+# is pulled in as `additional_dependencies`, never relied on from this repo's own (bin-less) root
+# package.json. Pin the version to each tagged release the same way the mirrors above pin theirs.
+#
+# `mole check --worktree` reads the repo's current staged/working changes directly (confirmed locally:
+# `node packages/daemon/dist/cli.js check --help` -> `usage: mole check <sha | --diff FILE [--base SHA] |
+# --worktree> ...` -- it does NOT take bare filenames, so `pass_filenames: false` here is required, not
+# optional; a naive `pass_filenames: true` would pass staged filenames as positional args `mole check`
+# doesn't accept). No daemon needed for this path (see docs/mcp.md's "What it reads/writes").
+#
+# Proof this shape actually works end-to-end (not just parses): scripts/test/pre-commit-local.sh runs
+# `pre-commit try-repo` against a scratch copy of this exact file with `additional_dependencies` pointed at
+# the local release tgz instead of the npm registry (no network/publish needed). The version below is NOT
+# RUN against the real npm registry here (nothing is published yet -- T85/T86 wait on the maintainer's token); once
+# `mole-code` is published this pin resolves for real for the first time, same code path
+# `additional_dependencies` always uses otherwise, so the proof transfers.
+#
+# T91 review round 2 fix HIGH: this pin MUST equal release/mole-code/package.json's "version" (the real
+# package shape and content scripts/publish-all.sh publishes, and server.json's version alongside it) --
+# packages/mcp/test/pre-commit-hooks-pin.test.ts asserts this on every test run so a future version bump in
+# one place can't silently drift from the other and ship a pin pointing at a version that was never
+# published (round 1's bug: this file said 0.5.0 while the package was, and still is, 0.1.0).
+- id: mole-check
+  name: Mole decision check
+  description: Flags edits to lines governed by a .mole/decisions/*.md rule, with the decision's rationale.
+  entry: mole check --worktree
+  language: node
+  additional_dependencies: ["mole-code@0.1.0"]
+  pass_filenames: false
+  always_run: true

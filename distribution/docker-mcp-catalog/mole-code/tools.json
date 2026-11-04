@@ -1,0 +1,289 @@
+[
+  {
+    "name": "mole_map",
+    "description": "Ranked neighbourhood (<=25 nodes) of a file or symbol: what it defines, who calls it, what it calls, who imports it. From the TypeScript compiler index with file:line evidence; no LLM.",
+    "arguments": [
+      {
+        "name": "target",
+        "type": "string",
+        "desc": "repo-relative file, file#Symbol, or a bare symbol name"
+      },
+      {
+        "name": "impact",
+        "type": "boolean",
+        "desc": "also mark transitive callers (what breaks if this changes)"
+      },
+      {
+        "name": "maxNodes",
+        "type": "number",
+        "desc": "cap the returned node count"
+      }
+    ]
+  },
+  {
+    "name": "mole_tried",
+    "description": "Commands, tests and edits an agent run already tried, each with its outcome (pass/fail/unknown).",
+    "arguments": [
+      {
+        "name": "target",
+        "type": "string",
+        "desc": "run id or prefix, file#Symbol, or repo-relative file"
+      }
+    ]
+  },
+  {
+    "name": "mole_claims",
+    "description": "Checks an agent run's last answer (tests pass, exit 0, committed <sha>, merged, pushed, wrote <file>, fixed) against the run's own tool calls, results and git, as supported/unsupported/contradicted. Deterministic patterns, no LLM.",
+    "arguments": [
+      {
+        "name": "run",
+        "type": "string",
+        "desc": "run id (Hermes/Claude Code/Codex session id, or a unique prefix)"
+      },
+      {
+        "name": "at",
+        "type": "number",
+        "desc": "check the answer at this row instead of the last one"
+      }
+    ]
+  },
+  {
+    "name": "mole_agent_intent",
+    "description": "What an external agent-session tool (Entire Checkpoints, git-ai, or Agent Trace) recorded about why a function was written, anchored to that function and re-checked.",
+    "arguments": [
+      {
+        "name": "target",
+        "type": "string",
+        "desc": "repo-relative file, or file#Symbol"
+      }
+    ]
+  },
+  {
+    "name": "mole_check",
+    "description": "For a change (working tree vs HEAD, a commit sha, or a diff file + base): the past fix commits that last touched the edited lines, each with its reason, the tests that guard it, and the governing decision.",
+    "arguments": [
+      {
+        "name": "root",
+        "type": "string",
+        "desc": "repository root (default: server root)"
+      },
+      {
+        "name": "sha",
+        "type": "string",
+        "desc": "a commit: check what it changed against its parent"
+      },
+      {
+        "name": "diff",
+        "type": "string",
+        "desc": "a unified diff file"
+      },
+      {
+        "name": "base",
+        "type": "string",
+        "desc": "with diff: the commit it applies to (default HEAD)"
+      },
+      {
+        "name": "worktree",
+        "type": "boolean",
+        "desc": "check the uncommitted working-tree change vs HEAD"
+      }
+    ]
+  },
+  {
+    "name": "mole_decisions",
+    "description": "Every decision and tenet of the repo (.mole/tenets.md, .mole/decisions/*.md, plain ADR folders) with a flag (red/yellow/green) and its reasons at file:line.",
+    "arguments": [
+      {
+        "name": "root",
+        "type": "string",
+        "desc": "repository root (default: server root)"
+      },
+      {
+        "name": "files",
+        "type": "array",
+        "desc": "only decisions whose scope covers these repo-relative files or symbols"
+      }
+    ]
+  },
+  {
+    "name": "mole_coverage",
+    "description": "Which agent sessions read or edited a file, when a human last looked, what tests guard it and what decision governs it, with a weak-spot reason.",
+    "arguments": [
+      {
+        "name": "root",
+        "type": "string",
+        "desc": "repository root (default: server root)"
+      },
+      {
+        "name": "file",
+        "type": "string",
+        "desc": "one file; omit for the whole repo scan"
+      },
+      {
+        "name": "weak",
+        "type": "boolean",
+        "desc": "only files flagged as a weak spot"
+      }
+    ]
+  },
+  {
+    "name": "mole_interrogate",
+    "description": "For a code change: which decisions govern the files it touches, and up to 3 pointed questions built from evidence Mole already found (diff hunks, past fixes, the governing decision).",
+    "arguments": [
+      {
+        "name": "sha",
+        "type": "string",
+        "desc": "a commit sha to interrogate"
+      },
+      {
+        "name": "worktree",
+        "type": "boolean",
+        "desc": "interrogate the uncommitted working tree"
+      }
+    ]
+  },
+  {
+    "name": "mole_decisions_asof",
+    "description": "What a decision's status held on a given date (application/valid time), from the bitemporal store. Needs MOLE_TEMPORAL_PG; errors rather than guesses if unset.",
+    "arguments": [
+      {
+        "name": "decisionId",
+        "type": "string",
+        "desc": "a decision id, e.g. D24"
+      },
+      {
+        "name": "attr",
+        "type": "string",
+        "desc": "the fact attribute (default status)"
+      },
+      {
+        "name": "asOf",
+        "type": "string",
+        "desc": "an ISO timestamp: what held at that instant"
+      }
+    ]
+  },
+  {
+    "name": "mole_collisions",
+    "description": "Pairs of agent runs that worked at the same time and touched the same function (or functions within 2 call hops): both run ids, the shared functions, the call path, and which run changed or read what.",
+    "arguments": [
+      {
+        "name": "run",
+        "type": "string",
+        "desc": "only the pairs of this run id"
+      },
+      {
+        "name": "since_hours",
+        "type": "number",
+        "desc": "runs active in the last N hours (default 24)"
+      }
+    ]
+  },
+  {
+    "name": "mole_priorities",
+    "description": "The repo's tenet order (.mole/priorities.md), optionally as of a date or compared between two phases.",
+    "arguments": [
+      {
+        "name": "phase",
+        "type": "string",
+        "desc": "phase name from .mole/priorities.md"
+      },
+      {
+        "name": "at",
+        "type": "string",
+        "desc": "YYYY-MM-DD: use the phase in force on that date"
+      }
+    ]
+  },
+  {
+    "name": "mole_incident_suggest",
+    "description": "For an incident record, the recorded losing arguments it may revive, ranked, each with its evidence.",
+    "arguments": [
+      {
+        "name": "incident",
+        "type": "string",
+        "desc": "incident id, e.g. inc-42"
+      },
+      {
+        "name": "limit",
+        "type": "number",
+        "desc": "max candidates (default 20)"
+      }
+    ]
+  },
+  {
+    "name": "mole_proposals_compare",
+    "description": "Decision proposals (what-if branches) judged against the approved baseline they were made from, one or side by side.",
+    "arguments": [
+      {
+        "name": "names",
+        "type": "array",
+        "desc": "proposal names (default: every proposal of this repo)"
+      }
+    ]
+  },
+  {
+    "name": "mole_recall",
+    "description": "Past decisions/incidents that resemble a new proposal/decision draft or an existing record, nearest first -- a similar-case match, never a claim that it applies.",
+    "arguments": [
+      {
+        "name": "text",
+        "type": "string",
+        "desc": "a new proposal/decision draft to recall similar past cases for"
+      },
+      {
+        "name": "record",
+        "type": "string",
+        "desc": "an existing decision/incident id to use as the query instead of text"
+      }
+    ]
+  },
+  {
+    "name": "mole_hotspots",
+    "description": "Code areas to pay down, ranked by the Tornhill/code-maat hotspot method: churn x indentation-based complexity.",
+    "arguments": [
+      {
+        "name": "top",
+        "type": "number",
+        "desc": "max files to return (default 10)"
+      },
+      {
+        "name": "since",
+        "type": "string",
+        "desc": "restrict churn/incident history to commits since this date"
+      }
+    ]
+  },
+  {
+    "name": "mole_coupling",
+    "description": "Logical coupling from git co-change (code-maat's coupling analysis): pairs of files that tend to change in the same commit.",
+    "arguments": [
+      {
+        "name": "top",
+        "type": "number",
+        "desc": "max pairs to return (default 10)"
+      },
+      {
+        "name": "minCoupling",
+        "type": "number",
+        "desc": "minimum degree % to keep a pair (default 30)"
+      }
+    ]
+  },
+  {
+    "name": "mole_outcomes",
+    "description": "The outcome tracking log: every decision record with an opt-in prediction block, its recorded outcome, and any staged rollout.",
+    "arguments": [
+      {
+        "name": "due",
+        "type": "boolean",
+        "desc": "keep only due/overdue checks (no outcome yet)"
+      },
+      {
+        "name": "today",
+        "type": "string",
+        "desc": "YYYY-MM-DD to treat as today instead of the real clock"
+      }
+    ]
+  }
+]

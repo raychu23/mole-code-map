@@ -1,0 +1,13 @@
+{
+  "name": "mole",
+  "version": "0.1.0",
+  "description": "Mole: the team's decisions behind the code, surfaced at session start, on a governed edit, and at stop. Local only, no model calls, no accounts.",
+  "mcpServers": {
+    "mole": {
+      "command": "npx",
+      "args": ["-y", "-p", "mole-code", "mole-mcp"],
+      "cwd": "${workspacePath}"
+    }
+  },
+  "contextFileName": "the project's shared instructions file"
+}

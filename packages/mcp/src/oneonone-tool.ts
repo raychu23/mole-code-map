@@ -6,9 +6,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import type { MoleMcpOptions } from './server.js';
 import { sc } from './annotations.js';
+import { confineToRoot } from './safe-path.js'; // T91 review fix HIGH 2
 
 interface LoggedQuestion {
   id: string;
@@ -70,8 +71,8 @@ export function registerOneOnOneTool(server: McpServer, opts: MoleMcpOptions): v
       outputSchema: z.object({ groups: z.array(z.unknown()).optional(), readback: z.unknown().optional(), stored: z.unknown().optional() }).passthrough(),
     },
     async (args) => {
-      const root = resolve(opts.root, args.root ?? '.');
       try {
+        const root = confineToRoot(opts.root, args.root, 'root');
         const { buildMatcher, prep, recordReadBack, loadReadBack, defaultReadBackPath } = await import('@mole/oneonone');
         if (args.action === 'readback') {
           if (!args.folder || !args.questionId || !args.verdict) {
@@ -82,7 +83,9 @@ export function registerOneOnOneTool(server: McpServer, opts: MoleMcpOptions): v
           const out = { stored: store[args.folder]?.[args.questionId] };
           return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }], structuredContent: sc(out) };
         }
-        const questionsPath = resolve(root, args.questionsFile ?? join('.mole', 'local', 'oneonone', 'questions.json'));
+        const questionsPath = args.questionsFile
+          ? confineToRoot(root, args.questionsFile, 'questionsFile')
+          : join(root, '.mole', 'local', 'oneonone', 'questions.json');
         const questions = loadQuestions(questionsPath);
         const records = decisionRecords(root);
         const matcher = buildMatcher(records);

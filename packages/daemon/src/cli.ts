@@ -246,7 +246,16 @@ async function main(): Promise<number> {
       return 1;
     }
   }
-  console.error('usage: mole <daemon|map|impact|check|status|reindex|stop|note add|memory|since|seen|demo> [target] [--root DIR] [--state-dir DIR] [--tsconfig F] [--src-dir D] [--idle-minutes N] [--json]');
+  console.error(
+    'usage: mole <command> [target] [--root DIR] [--json]\n' +
+      '  core:        daemon | map | impact | check | status | reindex | stop | demo\n' +
+      '  notes:       note add | memory | since | seen\n' +
+      '  decisions:   decision | decisions | rules | incident | priorities | recall | export | assurance | outcomes | proposals | compile | arguments | cascade-check | pr-check\n' +
+      '  agent state: runs | run | tried | agents | agent-intent | collisions | claims | steer\n' +
+      '  analysis:    coverage | hotspots | coupling | flows | interrogate | check-records\n' +
+      '  flags:       [--state-dir DIR] [--tsconfig F] [--src-dir D] [--idle-minutes N]\n' +
+      '  new here? -> mole demo',
+  );
   return cmd === 'help' ? 0 : 2;
 }
 

@@ -1,0 +1,13 @@
+# Smithery deploy manifest. Per smithery.ai/docs/build/publish and
+# deepwiki.com/smithery-ai/docs/3.1-typescript-deployment (fetched 2026-11-04):
+# `smithery.yaml` at the repo root tells Smithery's indexer how to run the server. Mole ships as a stdio
+# server (same `mole-mcp` bin packages/cli-dist and the Claude Code plugin already use), so this uses the
+# generic `startCommand: type: stdio` form, not the TypeScript/container hosted-deploy forms (those build
+# and HOST the server on Smithery's infrastructure; Mole's MCP server reads the caller's own local repo via
+# MOLE_ROOT/cwd, so there is no repo for a Smithery-hosted copy to read -- this is discovery, not hosting).
+# No configSchema: mole-mcp takes no required arguments, only optional env vars (MOLE_ROOT, MOLE_STATE_DIR),
+# already documented in docs/mcp.md.
+startCommand:
+  type: stdio
+  command: "npx"
+  args: ["-y", "-p", "mole-code", "mole-mcp"]

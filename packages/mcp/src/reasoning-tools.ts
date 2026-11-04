@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { comparePhases, evaluatePhase, phaseInForce, recallSimilar, suggestRevivals } from '@mole/decisions';
 import { listProposals, summarizeProposals } from '@mole/proposals';
 import { READ_ONLY_ANNOTATIONS, sc } from './annotations.js';
+import { confineAllToRoot } from './safe-path.js'; // T91 review fix HIGH 2
 
 interface Opts {
   root: string;
@@ -136,7 +137,8 @@ export function registerReasoningTools(server: McpServer, opts: Opts): void {
       try {
         if (!text && !record) throw new Error("mole_recall: give `text` or `record`");
         if (text && record) throw new Error('mole_recall: give `text` or `record`, not both');
-        return ok(recallSimilar(opts.root, record ? { record } : { text }, { ...(limit !== undefined ? { limit } : {}), ...(adrDirs ? { adrDirs } : {}) }));
+        const confinedAdrDirs = confineAllToRoot(opts.root, adrDirs, 'adrDirs');
+        return ok(recallSimilar(opts.root, record ? { record } : { text }, { ...(limit !== undefined ? { limit } : {}), ...(confinedAdrDirs ? { adrDirs: confinedAdrDirs } : {}) }));
       } catch (e) {
         return fail('mole_recall', e);
       }

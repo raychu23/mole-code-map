@@ -71,8 +71,66 @@
       <a class="btn primary" href="https://github.com/raychu23/mole-code-map">View on GitHub</a>
       <a class="btn" href="#install">Install</a>
       <a class="btn" href="#demo">See it work</a>
+      <a class="btn" href="https://github.com/raychu23/mole-code-map#readme">How we measure</a>
     </div>
+    <p class="muted" style="margin-top:14px;font-size:0.82rem;">
+      <a href="https://github.com/raychu23/mole-code-map/actions/workflows/check.yml">
+        <img alt="check" src="https://github.com/raychu23/mole-code-map/actions/workflows/check.yml/badge.svg" />
+      </a>
+      &nbsp;
+      <a href="https://github.com/raychu23/mole-code-map/releases">
+        <img alt="release" src="https://img.shields.io/github/v/release/raychu23/mole-code-map" />
+      </a>
+      &nbsp;
+      <a href="https://github.com/raychu23/mole-code-map/blob/main/LICENSE">
+        <img alt="license: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" />
+      </a>
+    </p>
   </header>
+
+  <h2>Works inside tools you already have</h2>
+  <p>
+    Mole reads/writes plain files (markdown decisions, optionally existing ADR/MADR folders), not a
+    proprietary format, so it adds to the tools below instead of replacing them.
+  </p>
+  <table>
+    <tr><th>Already in your stack</th><th>What Mole adds there</th></tr>
+    <tr><td><strong>Claude Code</strong></td><td>A plugin (<code>/plugin install mole</code>): SessionStart, PreToolUse and Stop hooks put decisions and past fixes in the agent's context automatically.</td></tr>
+    <tr><td><strong>VS Code</strong> (and forks)</td><td>The original <code>mole-code-map</code> panel — a code map beside the file you're editing — kept as one feature.</td></tr>
+    <tr><td><strong>Any MCP client</strong> — Codex, Cursor, Gemini CLI, Claude Desktop</td><td><code>mole-mcp</code>: the same decisions/map/check/recall tools over MCP.</td></tr>
+    <tr><td><strong>ADR folders / MADR / spec-kit</strong></td><td><code>mole check --spec-kit --adr-dir DIR</code> reads existing ADR-style records directly — no migration required.</td></tr>
+    <tr><td><strong>GitHub Actions / any CI</strong></td><td><code>mole rules --emit</code> writes rule files a normal CI job or PR check can run with no Mole-specific runner.</td></tr>
+  </table>
+
+  <h2>Architecture</h2>
+  <div class="mermaid">
+flowchart LR
+    subgraph repo["Your repo"]
+        dec[".mole/decisions/*.md + existing ADR/MADR"]
+        src["source tree (TypeScript/TSX)"]
+    end
+    subgraph molepkg["mole-code (one npm package)"]
+        cli["mole CLI: check / rules / map / impact"]
+        mcp["mole-mcp (stdio MCP server)"]
+        daemon["background daemon (TS compiler API + SQLite)"]
+    end
+    subgraph surfaces["Surfaces you already use"]
+        cc["Claude Code plugin (hooks)"]
+        vscode["VS Code extension"]
+        agents["Codex / Cursor / Gemini CLI / Claude Desktop"]
+        ci["CI / PR check"]
+    end
+    dec --> cli
+    src --> daemon
+    daemon --> cli
+    cli --> mcp
+    cli -- "--emit" --> ci
+    mcp --> agents
+    cli --> cc
+    daemon --> vscode
+  </div>
+  <p class="muted">No model call anywhere in this diagram — the daemon, CLI, rule checks and MCP tools are all local and deterministic.</p>
+
 
   <h2>The problem, plainly</h2>
   <p>
@@ -134,7 +192,10 @@
     <tr><td>Incremental re-check vs. full re-solve (one ICCMA19 graph)</td><td>p50 7.17 ms vs 2,081.87 ms, 15/15 matching results — a specific benchmark, not a universal claim</td></tr>
   </table>
   <p class="muted">
-    Full citations (file + line) are in the repo README's "Verified numbers" section. We also say plainly
+    Full citations (file + line) are in the repo README's "Verified numbers" section and the full
+    methodology — including the honest negative result above — is in
+    <a href="https://github.com/raychu23/mole-code-map/blob/main/docs/how-we-measure.md">docs/how-we-measure.md</a>.
+    We also say plainly
     where Mole has <em>not</em> shown a win: in a pre-registered 72-run agent-task benchmark (dcbench, 8 tasks × 3 setups
     × 3 runs), Mole's hooks scored 23.6% of decision-compliance points vs 27.6% with a rules file and 31.7% with no
     context (not significant) &mdash; we do not claim a productivity gain anywhere on this site.
@@ -154,6 +215,11 @@
   </footer>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js" integrity="sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2" crossorigin="anonymous"></script>
+<script>
+// pinned + SRI; if the CDN is unreachable the diagram stays as readable mermaid source, no error
+if (window.mermaid) { mermaid.initialize({ startOnLoad: true, theme: 'dark' }); }
+</script>
 <script>
 // Real, unedited transcript from `npx -y mole-code demo` run through a packed mole-code tarball in a
 // clean install directory. The only line removed

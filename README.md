@@ -1,8 +1,68 @@
 # Mole
 
+[![check](https://github.com/raychu23/mole-code-map/actions/workflows/check.yml/badge.svg)](https://github.com/raychu23/mole-code-map/actions/workflows/check.yml)
+[![release](https://img.shields.io/github/v/release/raychu23/mole-code-map)](https://github.com/raychu23/mole-code-map/releases)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+<!-- An npm badge is intentionally not added yet: `mole-code` is not published to npm until a maintainer
+     runs scripts/publish-all.sh (see "Source build vs. packaged builds" below) — a badge pointing at an
+     unpublished package renders as a broken/invalid badge, which reads worse than no badge. Add
+     `[![npm](https://img.shields.io/npm/v/mole-code?label=npm)](https://www.npmjs.com/package/mole-code)`
+     right after the line above once that publish has happened. -->
+
 **Everything you need to trust code you didn't write, in the editor you already use** — why it's built this
 way, whether that's still true, and whether an agent's "done" is real. One install. No new tab. No tokens
 for the checks.
+
+## Works inside tools you already have
+
+Mole is not a new place to work — it's hooks and a CLI inside the tools and standards most teams already
+run. It reads/writes plain files, not a proprietary format, so it composes instead of replacing:
+
+| Already in your stack | What Mole adds there |
+|---|---|
+| **Claude Code** | A plugin (`/plugin install mole`): `SessionStart`, `PreToolUse` and `Stop` hooks put decisions and past fixes in the agent's context automatically — no copy-paste. |
+| **VS Code** (and VS Code forks) | The original `mole-code-map` panel — a code map beside the file you're editing — kept as one feature, unchanged. |
+| **Any MCP client** — Codex, Cursor, Gemini CLI, Claude Desktop | `mole-mcp`: the same decisions/map/check/recall tools over MCP, so a non-Claude-Code agent gets the same context. |
+| **ADR folders / MADR / spec-kit** | `mole check --spec-kit --adr-dir DIR` reads existing `.adr`/`MADR`-style records and plain ADR folders directly — Mole adds a `rules:` block and enforcement, it does not ask you to migrate off them. |
+| **GitHub Actions / any CI** | `mole rules --emit` writes a `.dependency-cruiser.mole.cjs` + `.mole-call-rules.json` pair that a normal CI job (or a PR check) can run with no Mole-specific runner. |
+| **Any repo, scripted** | One npm package (`mole-code`); `npx mole-code --help` works with no install step. |
+
+See "How Mole compares" below for the specific tools (CodeRabbit, Greptile, adr-tools, Claude Code's own
+memory, Graphiti/Zep, claude-mem, Swimm) this sits next to rather than replaces.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph repo["Your repo"]
+        dec[".mole/decisions/*.md<br/>(+ existing ADR/MADR folders)"]
+        src["source tree<br/>(TypeScript/TSX)"]
+    end
+    subgraph mole["mole-code (one npm package)"]
+        cli["mole CLI<br/>check · rules · map · impact"]
+        mcp["mole-mcp<br/>(stdio MCP server)"]
+        daemon["background daemon<br/>(TS compiler API + SQLite index)"]
+    end
+    subgraph surfaces["Surfaces you already use"]
+        cc["Claude Code plugin<br/>(SessionStart / PreToolUse / Stop hooks)"]
+        vscode["VS Code extension<br/>(code-map panel)"]
+        agents["Other MCP clients<br/>(Codex, Cursor, Gemini CLI, Claude Desktop)"]
+        ci["CI / PR check<br/>(.dependency-cruiser.mole.cjs, .mole-call-rules.json)"]
+    end
+    dec --> cli
+    src --> daemon
+    daemon --> cli
+    cli --> mcp
+    cli -- "--emit" --> ci
+    mcp --> agents
+    cli --> cc
+    daemon --> vscode
+```
+
+No model call anywhere in this diagram: the daemon, CLI, rule checks and MCP tools are all local and
+deterministic — a model only enters if the surface on top of Mole (e.g. Claude Code itself) chooses to use
+the context Mole hands it.
 
 ## The problem, plainly
 
@@ -54,6 +114,11 @@ mole demo -- a 30-second walkthrough, no network, no model calls, nothing leaves
    In Claude Code, this text is what the agent sees before it reports the task done -- it does not
    block the agent, it puts the decision and the reason back in front of a person before merge.
 ```
+
+Static frame of the same transcript, generated from it so the two cannot drift apart:
+
+![mole demo terminal output](site/demo-terminal.svg)
+
 
 ## Install
 
@@ -146,7 +211,8 @@ Gemini CLI get the same context Claude Code's hooks do ([`docs/mcp.md`](docs/mcp
 ## Verified numbers, with sources
 
 Every number below is quoted, not estimated, from this project's internal verification notes (kept outside
-this public repository, reviewed independently before publication).
+this public repository, reviewed independently before publication). Full methodology, including the honest
+negative result below, is in [`docs/how-we-measure.md`](docs/how-we-measure.md).
 
 | Claim | Number |
 |---|---|
@@ -213,7 +279,7 @@ source build `mole runs`, `mole agents`, `mole claims`, `mole steer query` and t
 | `apps/vscode` | the VS Code extension: the original code-map panel, kept as a feature |
 | `plugins/claude-code` | the Claude Code plugin (hooks, MCP) |
 | `release/mole-code` | the single published `mole-code` npm package (CLI + `mole-mcp` + the plugin) |
-| `docs/` | per-feature docs: how to use, what it reads/writes, limits |
+| `docs/` | per-feature docs: how to use, what it reads/writes, limits, and [`docs/how-we-measure.md`](docs/how-we-measure.md) (benchmarks methodology, including the honest T63 negative result) |
 | `site/` | this project's GitHub Pages landing site |
 
 ## Build
